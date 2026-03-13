@@ -6,9 +6,12 @@
 
 ## 目录
 
-- [系统描述与核心理念](#一系统描述与核心理念)
-- [整体架构](#二整体架构)
-- [运行流程](#三运行流程)
+- [系统描述与核心理念](#一、系统描述与核心理念)
+- [整体架构](#二、整体架构)
+- [运行流程](#三、运行流程)
+- [项目工程目录树](#四、项目工程目录树)
+- [开发运行步骤](#五、开发运行步骤)
+- [API 接口概览](#六、api-接口概览)
 
 ---
 
@@ -183,3 +186,190 @@ PATCH /api/v1/student/progress（更新任务完成状态）
 ```
 
 ---
+
+
+## 四、项目工程目录树
+
+```
+backend/
+│
+├── main.py                          # FastAPI 应用入口，挂载路由与中间件
+├── requirements.txt                 # Python 依赖清单
+├── .env                             # 环境变量（本地开发，不提交 Git）
+├── .env.example                     # 环境变量模板
+├── alembic.ini                      # Alembic 数据库迁移配置
+│
+├── app/
+│   ├── __init__.py
+│   │
+│   ├── core/                        # 全局配置与基础设施
+│   │   ├── __init__.py
+│   │   └── config.py                # 读取 .env，暴露 settings 单例
+│   │
+│   ├── db/                          # 数据库连接层
+│   │   ├── __init__.py
+│   │   └── session.py               # 异步 AsyncSession 工厂 + get_session 依赖
+│   │
+│   ├── models/                      # SQLAlchemy ORM 模型
+│   │   ├── __init__.py
+│   │   └── models.py                # Unit / Theme / Block / StudentProgress /
+│   │                                #   StudentResponse / Badge / StudentBadge
+│   │
+│   ├── schemas/                     # Pydantic v2 请求/响应 Schema
+│   │   ├── __init__.py
+│   │   └── schemas.py               # XxxCreate / XxxRead / XxxUpdate /
+│   │                                #   EvaluatorWSPayload / PaginatedResponse ...
+│   │
+│   ├── api/                         # HTTP 路由层
+│   │   ├── __init__.py
+│   │   └── routes.py                # 所有 REST 路由（unit / theme / block /
+│   │                                #   student / ws）汇总并注册至 api_router
+│   │
+│   └── agents/                      # AI 智能体层
+│       ├── __init__.py
+│       └── evaluator_agent.py       # EvaluatorAgent（Anthropic 流式评测）+
+│                                    #   ConnectionManager（WebSocket 连接池）+
+│                                    #   ws_evaluate_endpoint（WS 路由处理器）
+│
+└── alembic/                         # 数据库迁移脚本
+    ├── env.py                       # Alembic 运行环境配置
+    ├── script.py.mako               # 迁移脚本模板
+    └── versions/
+        └── 0001_initial.py          # 初始建表迁移（units / themes / blocks /
+                                     #   student_progress / student_responses /
+                                     #   badges / student_badges）
+```
+
+### 模块职责说明
+
+| 模块 | 职责 |
+|---|---|
+| `main.py` | 应用入口，配置 CORS、挂载 `api_router` 和 `ws_router`，提供 `/health` 检查 |
+| `app/core/config.py` | 使用 `pydantic-settings` 读取环境变量，暴露全局 `settings` 对象 |
+| `app/db/session.py` | 创建异步数据库引擎，提供 FastAPI 依赖注入用的 `get_session` |
+| `app/models/models.py` | 定义全部 ORM 表结构，使用 SQLAlchemy 2.x `Mapped` 类型注解 |
+| `app/schemas/schemas.py` | 定义前后端数据契约，遵循 `XxxBase → XxxCreate/Update/Read` 命名规范 |
+| `app/api/routes.py` | 分组路由（unit / theme / block / student），最终合并注册 |
+| `app/agents/evaluator_agent.py` | 核心 AI 评测智能体，支持按 `component_type` 差异化评测策略，流式输出 |
+| `alembic/versions/` | 版本化数据库迁移，保持 schema 与 ORM 同步 |
+
+---
+
+## 五、开发运行步骤
+
+### 环境要求
+
+- Python `>= 3.11`
+- PostgreSQL `>= 15`
+- Redis `>= 7`（LangGraph Checkpoint 缓存）
+
+### 1. 克隆项目
+
+```bash
+git clone <repository-url>
+cd backend
+```
+
+### 2. 创建并激活虚拟环境
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # macOS / Linux
+# .venv\Scripts\activate         # Windows
+```
+
+### 3. 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. 配置环境变量
+
+复制模板并填入真实配置：
+
+```bash
+cp .env.example .env
+```
+
+`.env` 关键字段说明：
+
+```env
+# 数据库
+DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/writing_system
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# Anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+
+# CORS（前端地址）
+CORS_ORIGINS=["http://localhost:5173"]
+```
+
+### 5. 运行数据库迁移
+
+确保 PostgreSQL 已启动并且 `DATABASE_URL` 配置正确：
+
+```bash
+alembic upgrade head
+```
+
+### 6. 启动开发服务器
+
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+服务启动后访问：
+
+- API 文档（Swagger UI）：`http://localhost:8000/docs`
+- ReDoc 文档：`http://localhost:8000/redoc`
+- 健康检查：`http://localhost:8000/health`
+
+### 7. 创建新的数据库迁移（修改模型后执行）
+
+```bash
+alembic revision --autogenerate -m "描述本次变更"
+alembic upgrade head
+```
+
+### 常用开发命令
+
+```bash
+# 启动开发服务器（热重载）
+uvicorn main:app --reload
+
+# 查看迁移历史
+alembic history
+
+# 回滚一个版本
+alembic downgrade -1
+
+# 检查当前迁移状态
+alembic current
+```
+
+---
+
+## 六、API 接口概览
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/units` | 获取单元列表（分页） |
+| POST | `/api/v1/units` | 创建单元 |
+| GET | `/api/v1/units/{id}` | 获取单元详情（含主题和 Block） |
+| PATCH | `/api/v1/units/{id}` | 更新单元 |
+| DELETE | `/api/v1/units/{id}` | 删除单元（级联） |
+| GET | `/api/v1/themes?unit_id=` | 获取主题列表 |
+| POST | `/api/v1/themes?unit_id=` | 创建主题 |
+| POST | `/api/v1/themes/{id}/publish` | 发布主题（解锁学生访问） |
+| GET | `/api/v1/blocks?theme_id=` | 获取 Block 列表 |
+| POST | `/api/v1/blocks?theme_id=` | 创建 Block |
+| PATCH | `/api/v1/blocks/{id}` | 更新 Block（含 config_json） |
+| GET | `/api/v1/student/themes/{id}/blocks` | 学生获取主题 Block 列表 |
+| POST | `/api/v1/student/responses` | 学生提交作答 |
+| POST | `/api/v1/student/evaluate` | 触发 AI 写作评测（HTTP） |
+| PATCH | `/api/v1/student/progress` | 更新学习进度 |
+| WS | `/ws/evaluate?student_id=` | 流式 AI 评测（WebSocket） |
