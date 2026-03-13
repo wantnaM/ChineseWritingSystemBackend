@@ -218,18 +218,17 @@ backend/
 │   ├── schemas/                     # Pydantic v2 请求/响应 Schema
 │   │   ├── __init__.py
 │   │   └── schemas.py               # XxxCreate / XxxRead / XxxUpdate /
-│   │                                #   EvaluatorWSPayload / PaginatedResponse ...
+│   │                                #   EvaluatorPayload / PaginatedResponse ...
 │   │
 │   ├── api/                         # HTTP 路由层
 │   │   ├── __init__.py
 │   │   └── routes.py                # 所有 REST 路由（unit / theme / block /
-│   │                                #   student / ws）汇总并注册至 api_router
+│   │                                #   student）汇总并注册至 api_router
 │   │
 │   └── agents/                      # AI 智能体层
 │       ├── __init__.py
-│       └── evaluator_agent.py       # EvaluatorAgent（Anthropic 流式评测）+
-│                                    #   ConnectionManager（WebSocket 连接池）+
-│                                    #   ws_evaluate_endpoint（WS 路由处理器）
+│       └── evaluator_agent.py       # EvaluatorAgent：构建 Prompt，调用
+│                                    #   Anthropic API，返回评测反馈文本
 │
 └── alembic/                         # 数据库迁移脚本
     ├── env.py                       # Alembic 运行环境配置
@@ -354,7 +353,9 @@ alembic current
 ---
 
 ## 六、API 接口概览
-
+ 
+### 课程内容管理（教师端）
+ 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/v1/units` | 获取单元列表（分页） |
@@ -364,12 +365,42 @@ alembic current
 | DELETE | `/api/v1/units/{id}` | 删除单元（级联） |
 | GET | `/api/v1/themes?unit_id=` | 获取主题列表 |
 | POST | `/api/v1/themes?unit_id=` | 创建主题 |
+| PATCH | `/api/v1/themes/{id}` | 更新主题 |
 | POST | `/api/v1/themes/{id}/publish` | 发布主题（解锁学生访问） |
+| DELETE | `/api/v1/themes/{id}` | 删除主题 |
 | GET | `/api/v1/blocks?theme_id=` | 获取 Block 列表 |
 | POST | `/api/v1/blocks?theme_id=` | 创建 Block |
+| GET | `/api/v1/blocks/{id}` | 获取 Block 详情 |
 | PATCH | `/api/v1/blocks/{id}` | 更新 Block（含 config_json） |
-| GET | `/api/v1/student/themes/{id}/blocks` | 学生获取主题 Block 列表 |
-| POST | `/api/v1/student/responses` | 学生提交作答 |
-| POST | `/api/v1/student/evaluate` | 触发 AI 写作评测（HTTP） |
+| DELETE | `/api/v1/blocks/{id}` | 删除 Block |
+| PUT | `/api/v1/blocks/reorder` | 批量更新 Block 排序 |
+ 
+### 学生端
+ 
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/student/themes/{id}/blocks` | 获取主题的 Block 列表 |
+| POST | `/api/v1/student/responses` | 提交作答 |
+| GET | `/api/v1/student/responses/{student_id}/block/{block_id}` | 获取历史作答 |
+| POST | `/api/v1/student/evaluate` | 触发 AI 写作评测，返回反馈文本 |
 | PATCH | `/api/v1/student/progress` | 更新学习进度 |
-| WS | `/ws/evaluate?student_id=` | 流式 AI 评测（WebSocket） |
+| GET | `/api/v1/student/badges/{student_id}` | 获取已获得徽章列表 |
+ 
+### 写作评测调用示例
+ 
+```bash
+POST /api/v1/student/evaluate
+Content-Type: application/json
+ 
+{
+  "student_id": "user_123",
+  "block_id": 5,
+  "theme_id": 1,
+  "component_type": "GuidedWritingArea",
+  "student_text": "校园的早晨，雾气像轻纱一样笼罩着操场...",
+  "context": {
+    "instruction": "请模仿上述句式描写晨景",
+    "evaluator_focus": ["是否使用了比喻", "意境是否相符"]
+  }
+}
+```
