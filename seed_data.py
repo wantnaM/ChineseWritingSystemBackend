@@ -8,7 +8,7 @@ seed_data.py
   - themes         : 3 条（主题阅读 / 主题活动 / 技法学习）
   - blocks         : 来自 themeReadingMock / themeActivityMock / techniqueLearningMock
   - badges         : 5 条
-  - demo user      : 1 名教师 + 1 名学生（可选）
+  - users          : 1 名教师 + 2 名学生
 
 用法:
     python seed_data.py
@@ -583,20 +583,33 @@ BADGES = [
 ]
 
 # ── Demo Users ──────────────────────────────────────────────────────────────
+# 密码明文（仅供开发测试，生产环境请替换）：
+#   teacher01  →  Teacher@123
+#   S001       →  Student@123
+#   S002       →  Student@123
 DEMO_USERS = [
     {
         "username": "teacher01",
         "display_name": "示例教师",
         "role": "teacher",
-        "password_hash": "hashed_password_placeholder",
+        "password": "Teacher@123",
+        "class_name": None,
         "is_active": True,
     },
     {
-        "username": "student001",
-        "display_name": "示例学生",
+        "username": "S001",
+        "display_name": "张三",
         "role": "student",
-        "student_id": "STU001",
-        "password_hash": "hashed_password_placeholder",
+        "password": "Student@123",
+        "class_name": "七年级一班",
+        "is_active": True,
+    },
+    {
+        "username": "S002",
+        "display_name": "李四",
+        "role": "student",
+        "password": "Student@123",
+        "class_name": "七年级一班",
         "is_active": True,
     },
 ]
@@ -671,6 +684,44 @@ async def upsert_badge(session: AsyncSession, data: dict) -> None:
     )
 
 
+async def upsert_user(session: AsyncSession, data: dict) -> None:
+    """
+    使用 bcrypt 对明文密码哈希后写入 users 表。
+    以 username 为唯一键做幂等 upsert（重复执行不会重复插入）。
+    """
+    try:
+        import bcrypt
+        hashed = bcrypt.hashpw(
+            data["password"].encode(), bcrypt.gensalt()
+        ).decode()
+    except ImportError:
+        # 若环境中未安装 bcrypt，回退到 passlib（项目通常已依赖）
+        from passlib.context import CryptContext
+        pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        hashed = pwd_ctx.hash(data["password"])
+
+    await session.execute(
+        text("""
+        INSERT INTO users (username, hashed_password, display_name, role, class_name, is_active)
+        VALUES (:username, :hashed_password, :display_name, :role, :class_name, :is_active)
+        ON CONFLICT (username) DO UPDATE SET
+            display_name    = EXCLUDED.display_name,
+            role            = EXCLUDED.role,
+            class_name      = EXCLUDED.class_name,
+            is_active       = EXCLUDED.is_active,
+            updated_at      = now()
+        """),
+        {
+            "username":        data["username"],
+            "hashed_password": hashed,
+            "display_name":    data["display_name"],
+            "role":            data["role"],
+            "class_name":      data.get("class_name"),
+            "is_active":       data.get("is_active", True),
+        },
+    )
+
+
 # --------------------------------------------------------------------------- #
 # 主入口
 # --------------------------------------------------------------------------- #
@@ -708,6 +759,10 @@ async def run_seed() -> None:
             for badge in BADGES:
                 await upsert_badge(session, badge)
 
+            print("▶ 插入 Users ...")
+            for user in DEMO_USERS:
+                await upsert_user(session, user)
+
         print("✅ Seed 完成！")
         print(f"   Units  : {len(UNITS)}")
         print(f"   Themes : {len(THEMES)}")
@@ -718,6 +773,13 @@ async def run_seed() -> None:
         )
         print(f"   Blocks : {blocks_total}")
         print(f"   Badges : {len(BADGES)}")
+        print(f"   Users  : {len(DEMO_USERS)}")
+        print()
+        print("   账号一览：")
+        for u in DEMO_USERS:
+            tag = "👨‍🏫 教师" if u["role"] == "teacher" else "👨‍🎓 学生"
+            cls = f"  班级: {u['class_name']}" if u.get("class_name") else ""
+            print(f"   {tag}  用户名: {u['username']}  密码: {u['password']}{cls}")
 
 
 if __name__ == "__main__":
