@@ -689,16 +689,10 @@ async def upsert_user(session: AsyncSession, data: dict) -> None:
     使用 bcrypt 对明文密码哈希后写入 users 表。
     以 username 为唯一键做幂等 upsert（重复执行不会重复插入）。
     """
-    try:
-        import bcrypt
-        hashed = bcrypt.hashpw(
-            data["password"].encode(), bcrypt.gensalt()
-        ).decode()
-    except ImportError:
-        # 若环境中未安装 bcrypt，回退到 passlib（项目通常已依赖）
-        from passlib.context import CryptContext
-        pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-        hashed = pwd_ctx.hash(data["password"])
+    import bcrypt
+    hashed = bcrypt.hashpw(
+        data["password"].encode(), bcrypt.gensalt()
+    ).decode()
 
     await session.execute(
         text("""

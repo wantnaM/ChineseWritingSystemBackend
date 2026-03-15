@@ -4,7 +4,7 @@ app/api/auth_routes.py
 
 依赖：
   - python-jose[cryptography]  （JWT）
-  - passlib[bcrypt]            （密码哈希）
+  - bcrypt            （密码哈希）
   以上库需加入 requirements.txt
 """
 
@@ -22,11 +22,10 @@ from app.db.session import get_session
 from app.models.models import User
 from app.schemas.schemas import LoginRequest, TokenResponse, UserRead
 
-# 懒导入：避免在未安装 jose / passlib 时整体崩溃
+import bcrypt
+
 try:
     from jose import jwt
-    from passlib.context import CryptContext
-    _pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
     _JWT_AVAILABLE = True
 except ImportError:
     _JWT_AVAILABLE = False
@@ -39,10 +38,9 @@ DB = Annotated[AsyncSession, Depends(get_session)]
 # 工具函数
 # ---------------------------------------------------------------------------
 
+
 def _verify_password(plain: str, hashed: str) -> bool:
-    if not _JWT_AVAILABLE:
-        return plain == hashed  # 开发 fallback
-    return _pwd_ctx.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
 def _create_token(user_id: int, role: str) -> tuple[str, int]:

@@ -14,6 +14,7 @@ app/api/teacher_routes.py
 """
 
 from __future__ import annotations
+import bcrypt
 
 from datetime import datetime, timezone
 from typing import Annotated, Optional
@@ -45,14 +46,10 @@ DB = Annotated[AsyncSession, Depends(get_session)]
 # ---------------------------------------------------------------------------
 # 密码工具（与 auth_routes 保持一致）
 # ---------------------------------------------------------------------------
-try:
-    from passlib.context import CryptContext
-    _pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    def _hash(plain: str) -> str:
-        return _pwd_ctx.hash(plain)
-except ImportError:
-    def _hash(plain: str) -> str:  # type: ignore[misc]
-        return plain  # 开发 fallback
+
+
+def _hash(plain: str) -> str:
+    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
 
 
 # ===========================================================================
@@ -135,7 +132,8 @@ async def get_class_analytics(
         ("60-69",  60, 70),
         ("60以下",  0, 60),
     ]
-    all_scores = [s.avg_ai_score for s in stats_rows if s.avg_ai_score is not None]
+    all_scores = [
+        s.avg_ai_score for s in stats_rows if s.avg_ai_score is not None]
     distribution: list[ScoreDistribution] = []
     for label, low, high in score_ranges:
         cnt = sum(1 for sc in all_scores if low <= sc < high)
@@ -143,7 +141,8 @@ async def get_class_analytics(
             ScoreDistribution(
                 range=label,
                 count=cnt,
-                percentage=round(cnt / len(all_scores) * 100, 1) if all_scores else 0.0,
+                percentage=round(cnt / len(all_scores) * 100,
+                                 1) if all_scores else 0.0,
             )
         )
 
@@ -246,7 +245,8 @@ async def update_student(student_id: str, body: StudentUpdate, db: DB):
     """
     user = (
         await db.execute(
-            select(User).where(User.username == student_id, User.role == "student")
+            select(User).where(User.username ==
+                               student_id, User.role == "student")
         )
     ).scalar_one_or_none()
     if not user:
@@ -273,7 +273,8 @@ async def reset_student_password(
     """
     user = (
         await db.execute(
-            select(User).where(User.username == student_id, User.role == "student")
+            select(User).where(User.username ==
+                               student_id, User.role == "student")
         )
     ).scalar_one_or_none()
     if not user:
@@ -297,7 +298,8 @@ async def delete_student(student_id: str, db: DB):
     """
     user = (
         await db.execute(
-            select(User).where(User.username == student_id, User.role == "student")
+            select(User).where(User.username ==
+                               student_id, User.role == "student")
         )
     ).scalar_one_or_none()
     if not user:
@@ -330,7 +332,8 @@ async def get_student_detail(
     """
     user = (
         await db.execute(
-            select(User).where(User.username == student_id, User.role == "student")
+            select(User).where(User.username ==
+                               student_id, User.role == "student")
         )
     ).scalar_one_or_none()
     if not user:
@@ -373,7 +376,8 @@ async def get_student_detail(
         theme: Theme = block.theme if block else None
         feedback_text = None
         if r.ai_feedback and isinstance(r.ai_feedback, dict):
-            feedback_text = r.ai_feedback.get("feedback") or r.ai_feedback.get("text")
+            feedback_text = r.ai_feedback.get(
+                "feedback") or r.ai_feedback.get("text")
 
         submissions.append(
             SubmissionRecord(
