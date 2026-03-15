@@ -58,16 +58,33 @@ async def list_units(
     page_size: int = Query(20, ge=1, le=100),
     is_published: bool | None = None,
 ):
-    """获取单元列表（分页）。"""
+    """获取单元列表（分页），含每个单元的主题列表（用于前端渲染进度）。"""
     q = select(Unit).order_by(Unit.sort_order, Unit.id)
     if is_published is not None:
         q = q.where(Unit.is_published == is_published)
 
     total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
-    items = (await db.execute(q.offset((page - 1) * page_size).limit(page_size))).scalars().all()
+
+    # ✅ 预加载 themes（仅基本字段，不加载 blocks，避免 N+1 且保持轻量）
+    items = (
+        await db.execute(
+            q.offset((page - 1) * page_size)
+            .limit(page_size)
+            .options(selectinload(Unit.themes))   # ← 核心改动
+        )
+    ).scalars().all()
+
+    # ✅ 注入 themes_count 聚合字段
+    unit_reads = []
+    for unit in items:
+        themes = unit.themes or []
+        unit_read = UnitRead.model_validate(unit)
+        unit_read.themes_count = len(themes)
+        unit_read.themes = themes          # Pydantic 会自动序列化为 ThemeRead
+        unit_reads.append(unit_read)
 
     return PaginatedResponse(
-        items=items,
+        items=unit_reads,
         pagination=Pagination(
             page=page, page_size=page_size, total=total,
             total_pages=(total + page_size - 1) // page_size,

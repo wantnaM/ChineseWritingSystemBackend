@@ -136,6 +136,10 @@ class UnitRead(UnitBase):
     created_at: datetime
     updated_at: datetime
 
+    # 主题统计（列表页渲染进度条所需）
+    themes_count: int = 0
+    themes: list["ThemeRead"] = []   # 仅含基本字段，不含 blocks
+
 
 class UnitDetail(UnitRead):
     """含完整主题列表（每个主题含 Blocks）的单元详情。"""
