@@ -9,14 +9,15 @@ ORM: SQLAlchemy 2.x (Mapped / mapped_column 风格)
           └── Block (内容块, 1个主题包含多个 Block)
 
 其他独立表:
-  StudentProgress  - 学生在主题中的进度
-  StudentResponse  - 学生在 Block 中的答题/作答记录
+  StudentProgress  - 学生在主题中的完成状态
+                     【v2】移除 current_block_order / is_required：
+                     所有 Block 全部展示，当主题下全部 task_driven Block
+                     均有提交记录时，由后端自动将 is_completed 置为 True。
+  StudentResponse  - 学生在 Block 中的答题/作答记录（是判定完成的核心数据）
   Badge            - 徽章定义
   StudentBadge     - 学生已获得的徽章
-
-新增三张表:
-  - users          : 统一用户表（学生 + 教师）
-  - student_stats  : 学生统计快照（AI 均分、总用时、总提交数）
+  User             - 统一用户表（学生 + 教师）
+  StudentStats     - 学生统计快照（AI 均分、总用时、总提交数）
 """
 
 from datetime import datetime
@@ -76,7 +77,8 @@ class Unit(Base):
 
     # relationships
     themes: Mapped[list["Theme"]] = relationship(
-        "Theme", back_populates="unit", cascade="all, delete-orphan", order_by="Theme.sort_order"
+        "Theme", back_populates="unit", cascade="all, delete-orphan",
+        order_by="Theme.sort_order"
     )
     badges: Mapped[list["Badge"]] = relationship(
         "Badge", back_populates="unit")
@@ -102,22 +104,23 @@ class Theme(Base):
     id: Mapped[int] = mapped_column(
         BigInteger, primary_key=True, autoincrement=True)
     unit_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("units.id", ondelete="CASCADE"), nullable=False, index=True
+        BigInteger, ForeignKey("units.id", ondelete="CASCADE"),
+        nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(
         String(200), nullable=False, comment="主题标题")
     description: Mapped[Optional[str]] = mapped_column(Text, comment="主题描述")
     theme_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, comment="类型: themeReading | themeActivity | techniqueLearning"
+        String(50), nullable=False,
+        comment="类型: themeReading | themeActivity | techniqueLearning"
     )
     sort_order: Mapped[int] = mapped_column(
         Integer, default=0, comment="在单元内的排序")
     is_published: Mapped[bool] = mapped_column(Boolean, default=False)
-    # AI 生成后，教师微调前为 draft，发布后为 published
     status: Mapped[str] = mapped_column(
-        String(20), default="draft", comment="draft | reviewing | published"
+        String(20), default="draft",
+        comment="draft | reviewing | published"
     )
-    # LangGraph thread_id，用于暂停/恢复 Human-in-the-loop
     langgraph_thread_id: Mapped[Optional[str]] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
@@ -128,7 +131,8 @@ class Theme(Base):
     # relationships
     unit: Mapped["Unit"] = relationship("Unit", back_populates="themes")
     blocks: Mapped[list["Block"]] = relationship(
-        "Block", back_populates="theme", cascade="all, delete-orphan", order_by="Block.sort_order"
+        "Block", back_populates="theme", cascade="all, delete-orphan",
+        order_by="Block.sort_order"
     )
     student_progress: Mapped[list["StudentProgress"]] = relationship(
         "StudentProgress", back_populates="theme"
@@ -145,7 +149,7 @@ class Theme(Base):
 BLOCK_TYPE_CHOICES = (
     "description",
     "reading_guide",
-    "task_driven",
+    "task_driven",           # ← 唯一计入"主题完成"判定的类型
     "reading_recommendation",
     "appreciation_list",
     "knowledge_card",
@@ -160,16 +164,19 @@ class Block(Base):
     主题下的内容块（Schema-Driven UI 的最小渲染单元）。
     config_json 存储该 Block 的完整 JSON 配置，由前端渲染引擎解析。
 
-    Block 是系统的核心数据结构：
-      - 教师可在低代码编辑器中修改 config_json
-      - 学生按 sort_order 逐步解锁
+    【v2 变更】
+    - 删除 is_required 字段：所有 Block 全部直接展示，不再逐步解锁。
+    - block_type == 'task_driven' 的 Block 是学生需要提交作答的任务组件，
+      当一个主题下所有 task_driven Block 均有 student_responses 记录时，
+      该主题自动标记为完成。
     """
     __tablename__ = "blocks"
 
     id: Mapped[int] = mapped_column(
         BigInteger, primary_key=True, autoincrement=True)
     theme_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("themes.id", ondelete="CASCADE"), nullable=False, index=True
+        BigInteger, ForeignKey("themes.id", ondelete="CASCADE"),
+        nullable=False, index=True
     )
     block_type: Mapped[str] = mapped_column(
         String(50), nullable=False,
@@ -179,12 +186,11 @@ class Block(Base):
         String(200), comment="Block 标题（冗余字段，方便列表展示）")
     sort_order: Mapped[int] = mapped_column(
         Integer, default=0, comment="在主题内的渲染顺序")
-    # 完整的前端渲染配置，结构与前端 ThemeBlock 接口完全一致
     config_json: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, default=dict, comment="前端渲染所需的完整 JSON 配置"
+        JSONB, nullable=False, default=dict,
+        comment="前端渲染所需的完整 JSON 配置"
     )
-    # 学生是否必须完成此 Block 才能解锁下一个
-    is_required: Mapped[bool] = mapped_column(Boolean, default=True)
+    # is_required 已删除（迁移 0003）
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -202,13 +208,18 @@ class Block(Base):
 
 
 # ---------------------------------------------------------------------------
-# StudentProgress（学生进度）
+# StudentProgress（学生主题完成状态）
 # ---------------------------------------------------------------------------
 
 class StudentProgress(Base):
     """
-    记录学生在某个主题（Theme）下的整体进度。
-    current_block_order 表示学生当前解锁到第几个 Block。
+    记录学生在某个主题（Theme）下的完成状态。
+
+    【v2 变更】
+    - 删除 current_block_order：不再有"解锁到第几步"的概念。
+    - is_completed 由后端在 submit_response 时自动判定：
+      当该主题下所有 block_type='task_driven' 的 Block 均存在
+      对应 student_responses 记录时，自动置 True 并记录 completed_at。
     """
     __tablename__ = "student_progress"
     __table_args__ = (
@@ -222,11 +233,12 @@ class StudentProgress(Base):
     theme_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("themes.id", ondelete="CASCADE"), nullable=False
     )
-    current_block_order: Mapped[int] = mapped_column(
-        Integer, default=0, comment="当前步骤索引")
-    is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
-    completed_at: Mapped[Optional[datetime]
-                         ] = mapped_column(DateTime(timezone=True))
+    is_completed: Mapped[bool] = mapped_column(
+        Boolean, default=False,
+        comment="主题下所有 task_driven Block 均已提交时自动置 True"
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -247,6 +259,9 @@ class StudentResponse(Base):
     学生在某个 Block 中的具体作答/提交记录。
     response_data 存储学生输入（文本、图片 URL、选项等）。
     ai_feedback 存储 Evaluator Agent 返回的批改反馈。
+
+    这张表同时是"主题完成"判定的数据来源：
+    对某个 task_driven Block 只要存在任意一条该学生的记录，即视为已完成。
     """
     __tablename__ = "student_responses"
 
@@ -257,12 +272,14 @@ class StudentResponse(Base):
     block_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("blocks.id", ondelete="CASCADE"), nullable=False
     )
-    # 学生提交的内容（支持文本、图片列表等多种结构）
     response_data: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, default=dict)
-    # AI 批改反馈（Evaluator Agent 输出）
-    ai_feedback: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
-    score: Mapped[Optional[int]] = mapped_column(Integer, comment="AI 打分（可选）")
+        JSONB, nullable=False, default=dict,
+        comment="作答内容，如 {text: '...', images: ['url1', ...]}"
+    )
+    ai_feedback: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, comment="Evaluator Agent 输出的批改反馈")
+    score: Mapped[Optional[int]] = mapped_column(
+        Integer, comment="AI 打分（0-100，可选）")
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
 
@@ -272,35 +289,31 @@ class StudentResponse(Base):
 
 
 # ---------------------------------------------------------------------------
-# Badge（徽章）
+# Badge / StudentBadge（徽章）
 # ---------------------------------------------------------------------------
 
 class Badge(Base):
-    """徽章定义，关联到某个单元。"""
     __tablename__ = "badges"
 
     id: Mapped[int] = mapped_column(
         BigInteger, primary_key=True, autoincrement=True)
     unit_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger, ForeignKey("units.id", ondelete="SET NULL"), nullable=True
-    )
+        BigInteger, ForeignKey("units.id", ondelete="SET NULL"), nullable=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     icon: Mapped[str] = mapped_column(
-        String(20), default="🏅", comment="Emoji 图标")
+        String(20), nullable=False, server_default="🏅",
+        comment="Emoji 图标"
+    )
     description: Mapped[Optional[str]] = mapped_column(Text)
     condition_json: Mapped[Optional[dict[str, Any]]] = mapped_column(
-        JSONB, comment="获取条件，如 {type: 'complete_unit', unit_id: 1}"
-    )
+        JSONB, comment="获取条件，如 {type: 'complete_unit', unit_id: 1}")
 
     # relationships
     unit: Mapped[Optional["Unit"]] = relationship(
         "Unit", back_populates="badges")
-    student_badges: Mapped[list["StudentBadge"]] = relationship(
-        "StudentBadge", back_populates="badge")
 
 
 class StudentBadge(Base):
-    """学生已获得的徽章。"""
     __tablename__ = "student_badges"
     __table_args__ = (
         UniqueConstraint("student_id", "badge_id", name="uq_student_badge"),
@@ -311,28 +324,19 @@ class StudentBadge(Base):
     student_id: Mapped[str] = mapped_column(
         String(100), nullable=False, index=True)
     badge_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("badges.id", ondelete="CASCADE"), nullable=False
-    )
+        BigInteger, ForeignKey("badges.id", ondelete="CASCADE"), nullable=False)
     earned_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
 
     # relationships
-    badge: Mapped["Badge"] = relationship(
-        "Badge", back_populates="student_badges")
+    badge: Mapped["Badge"] = relationship("Badge")
+
 
 # ---------------------------------------------------------------------------
-# User（统一用户表 — 学生 & 教师）
+# User（统一用户表）
 # ---------------------------------------------------------------------------
-
 
 class User(Base):
-    """
-    统一账号表。
-    role = 'student' → 学生，role = 'teacher' → 教师。
-    student_id / teacher_no 与原有业务字段对齐：
-      student_id  → StudentProgress.student_id / StudentResponse.student_id
-      teacher_no  → 教师工号（前端登录用）
-    """
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(
@@ -348,8 +352,8 @@ class User(Base):
     class_name: Mapped[Optional[str]] = mapped_column(
         String(100), comment="班级，仅学生有值")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    last_login_at: Mapped[Optional[datetime]
-                          ] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -389,8 +393,8 @@ class StudentStats(Base):
         String(20), default="learning",
         comment="completed | learning | behind"
     )
-    last_active_at: Mapped[Optional[datetime]
-                           ] = mapped_column(DateTime(timezone=True))
+    last_active_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

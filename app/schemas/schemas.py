@@ -8,11 +8,11 @@ Pydantic v2 Schemas — 前后端 API 数据契约
   XxxRead     - 响应体（含 id、时间戳等）
   XxxDetail   - 含嵌套子资源的完整响应
 
-涵盖:
-  - 认证 (Auth)
-  - 用户管理 (User / Teacher-side)
-  - 学情分析 (Analytics)
-  - 学生管理 (StudentManage)
+【v2 变更】
+  - BlockBase / BlockUpdate：删除 is_required 字段
+  - StudentProgressRead：删除 current_block_order 字段
+  - StudentProgressUpdate：整体删除（进度由后端自动判定，前端无需手动 PATCH）
+  - SubmitResponseResult：新增，submit_response 响应中附带 theme_completed 字段
 """
 
 from __future__ import annotations
@@ -37,18 +37,18 @@ class BlockBase(BaseModel):
     config_json: dict[str, Any] = Field(
         ..., description="前端渲染所需的完整 JSON 配置，与前端 ThemeBlock 接口结构对齐"
     )
-    is_required: bool = True
+    # is_required 已删除（迁移 0003）
 
 
 class BlockCreate(BlockBase):
-    pass
+    theme_id: int
 
 
 class BlockUpdate(BaseModel):
     title: Optional[str] = None
     sort_order: Optional[int] = None
     config_json: Optional[dict[str, Any]] = None
-    is_required: Optional[bool] = None
+    # is_required 已删除（迁移 0003）
 
 
 class BlockRead(BlockBase):
@@ -77,7 +77,7 @@ class ThemeBase(BaseModel):
 
 
 class ThemeCreate(ThemeBase):
-    pass
+    unit_id: int
 
 
 class ThemeUpdate(BaseModel):
@@ -136,9 +136,8 @@ class UnitRead(UnitBase):
     created_at: datetime
     updated_at: datetime
 
-    # 主题统计（列表页渲染进度条所需）
     themes_count: int = 0
-    themes: list["ThemeRead"] = []   # 仅含基本字段，不含 blocks
+    themes: list["ThemeRead"] = []
 
 
 class UnitDetail(UnitRead):
@@ -151,21 +150,24 @@ class UnitDetail(UnitRead):
 # ===========================================================================
 
 class StudentProgressRead(BaseModel):
+    """
+    【v2】移除 current_block_order，进度现在仅关注主题是否完成。
+    is_completed 由后端在 submit_response 时自动判定。
+    """
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     student_id: str
     theme_id: int
-    current_block_order: int
+    # current_block_order 已删除（迁移 0003）
     is_completed: bool
     completed_at: Optional[datetime] = None
     updated_at: datetime
 
 
-class StudentProgressUpdate(BaseModel):
-    """学生完成一个 Block 后，前端调用此接口推进步骤。"""
-    current_block_order: int
-    is_completed: bool = False
+# StudentProgressUpdate 已删除：
+#   前端不再需要手动 PATCH /student/progress。
+#   进度由 POST /student/responses 提交后后端自动判定。
 
 
 # ===========================================================================
@@ -192,6 +194,17 @@ class StudentResponseRead(BaseModel):
     ai_feedback: Optional[dict[str, Any]] = None
     score: Optional[int] = None
     submitted_at: datetime
+
+
+class SubmitResponseResult(StudentResponseRead):
+    """
+    POST /student/responses 的响应体。
+
+    在标准 StudentResponseRead 基础上，附加 theme_completed 字段：
+      - True  → 本次提交后该主题下所有 task_driven Block 均已完成，前端可触发完成动画
+      - False → 仍有未完成的任务组件
+    """
+    theme_completed: bool = False
 
 
 # ===========================================================================
@@ -323,8 +336,8 @@ class StudentListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    username: str          # 学号
-    display_name: str      # 姓名
+    username: str
+    display_name: str
     class_name: Optional[str] = None
     is_active: bool
     last_login_at: Optional[datetime] = None
@@ -337,33 +350,30 @@ class StudentListItem(BaseModel):
 class ClassOverviewStats(BaseModel):
     """全班概况统计卡片（TeacherAnalytics 页面顶部 4 张卡片）。"""
     total_students: int
-    completed_count: int      # 已完成全部任务
-    learning_count: int       # 学习中
-    behind_count: int         # 进度落后
+    completed_count: int
+    learning_count: int
+    behind_count: int
 
 
 class ScoreDistribution(BaseModel):
     """分数段分布（用于柱状图）。"""
-    range: str                # 如 "90-100"
+    range: str
     count: int
     percentage: float
 
 
 class StudentAnalyticsRow(BaseModel):
     """学情分析列表中每行学生的数据（TeacherAnalytics 页面表格）。"""
-    student_id: str           # 学号
-    display_name: str         # 姓名
-    overall_progress: int     # 0-100
+    student_id: str
+    display_name: str
+    overall_progress: int
     avg_ai_score: Optional[float] = None
     status: Literal["completed", "learning", "behind"]
     last_active_at: Optional[datetime] = None
 
 
 class ClassAnalyticsResponse(BaseModel):
-    """
-    GET /api/v1/teacher/analytics?unit_id=
-    完整学情分析响应体。
-    """
+    """GET /api/v1/teacher/analytics?unit_id= 完整学情分析响应体。"""
     unit_id: int
     unit_title: str
     overview: ClassOverviewStats
@@ -376,7 +386,6 @@ class ClassAnalyticsResponse(BaseModel):
 # ===========================================================================
 
 class StudentDetailProfile(BaseModel):
-    """学生详情页头部信息。"""
     student_id: str
     display_name: str
     class_name: Optional[str] = None
@@ -386,7 +395,6 @@ class StudentDetailProfile(BaseModel):
 
 
 class SubmissionRecord(BaseModel):
-    """学生历史提交记录（TeacherStudentDetail 列表项）。"""
     response_id: int
     submitted_at: datetime
     theme_title: str
@@ -397,8 +405,6 @@ class SubmissionRecord(BaseModel):
 
 
 class StudentDetailResponse(BaseModel):
-    """
-    GET /api/v1/teacher/students/{student_id}/detail
-    """
+    """GET /api/v1/teacher/students/{student_id}/detail"""
     profile: StudentDetailProfile
     recent_submissions: list[SubmissionRecord]
