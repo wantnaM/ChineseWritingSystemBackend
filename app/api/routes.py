@@ -144,7 +144,8 @@ async def delete_unit(unit_id: int, db: DB):
 # ===========================================================================
 
 @theme_router.get("", response_model=list[ThemeRead])
-async def list_themes(unit_id: int = Query(...), db: DB = Depends(get_session)):
+@theme_router.get("", response_model=list[ThemeRead])
+async def list_themes(db: DB, unit_id: int = Query(...)):
     themes = (
         await db.execute(
             select(Theme).where(Theme.unit_id ==

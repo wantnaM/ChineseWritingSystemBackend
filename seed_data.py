@@ -93,17 +93,23 @@ THEMES = [
 ]
 
 # ── Blocks：主题阅读（theme_id=1） ────────────────────────────────────────
+# Tab 映射（来自 themeReadingMock.ts）：
+#   reading      → 名著导读  📖  (sort_order 1-4)
+#   exchange     → 读后交流  💬  (sort_order 5-7)
+#   appreciation → 美文欣赏  ✨  (sort_order 8)
 BLOCKS_THEME_READING = [
-    # ── Tab: 名著导读 ──
+    # ── Tab: 名著导读 ──────────────────────────────────────────────────────
     {
         "theme_id": 1,
         "block_type": "description",
         "title": "学习指引",
         "sort_order": 1,
-        "is_required": False,
         "config_json": {
             "id": "reading-desc-1",
             "type": "description",
+            "tab_key": "reading",
+            "tab_label": "名著导读",
+            "tab_icon": "📖",
             "iconName": "BookOpen",
             "themeColor": "blue",
             "title": "学习指引",
@@ -111,7 +117,6 @@ BLOCKS_THEME_READING = [
                 "品读名家关于自然的美文，领会其主旨与情感，"
                 "学习\"语言风格借鉴法\"和\"添枝加叶法\"。"
             ),
-            "tab": "reading",
         },
     },
     {
@@ -119,10 +124,12 @@ BLOCKS_THEME_READING = [
         "block_type": "reading_guide",
         "title": "名著导读",
         "sort_order": 2,
-        "is_required": False,
         "config_json": {
             "id": "reading-guide-1",
             "type": "reading_guide",
+            "tab_key": "reading",
+            "tab_label": "名著导读",
+            "tab_icon": "📖",
             "title": "名著导读",
             "guideText": (
                 "草木枯荣，春秋更迭，自然万物，值得我们慢慢品味。"
@@ -147,7 +154,6 @@ BLOCKS_THEME_READING = [
                     "这地方的杏花、桃花都已经谢了，只有几棵秋海棠开得正好。"
                 ),
             ],
-            "tab": "reading",
         },
     },
     {
@@ -155,15 +161,16 @@ BLOCKS_THEME_READING = [
         "block_type": "task_driven",
         "title": "任务驱动",
         "sort_order": 3,
-        "is_required": True,
         "config_json": {
             "id": "reading-task-1",
             "type": "task_driven",
+            "tab_key": "reading",
+            "tab_label": "名著导读",
+            "tab_icon": "📖",
             "title": "任务驱动",
             "iconName": "Rocket",
             "themeColor": "purple",
             "submitText": "提交任务",
-            "tab": "reading",
             "tasks": [
                 {
                     "id": "task-1",
@@ -214,10 +221,12 @@ BLOCKS_THEME_READING = [
         "block_type": "description",
         "title": "课后任务",
         "sort_order": 4,
-        "is_required": False,
         "config_json": {
             "id": "reading-desc-2",
             "type": "description",
+            "tab_key": "reading",
+            "tab_label": "名著导读",
+            "tab_icon": "📖",
             "iconName": "MessageCircleQuestion",
             "themeColor": "indigo",
             "title": "课后任务",
@@ -225,34 +234,118 @@ BLOCKS_THEME_READING = [
                 "请在课后仔细阅读汪曾祺先生的散文集《人间草木》，"
                 "感受作者平实质朴、形象生动、风趣幽默的语言风格，体会其笔下的\"草木情\"。"
             ),
-            "tab": "reading",
         },
     },
-    # ── Tab: 读后交流 ──
+    # ── Tab: 读后交流 ──────────────────────────────────────────────────────
     {
         "theme_id": 1,
         "block_type": "task_driven",
         "title": "读后交流",
         "sort_order": 5,
-        "is_required": True,
         "config_json": {
             "id": "exchange-task-1",
             "type": "task_driven",
+            "tab_key": "exchange",
+            "tab_label": "读后交流",
+            "tab_icon": "💬",
             "title": "读后交流",
             "iconName": "MessageCircleQuestion",
             "themeColor": "indigo",
             "submitText": "提交任务",
-            "tab": "exchange",
             "tasks": [
                 {
                     "id": "exchange-1",
                     "title": "话题一：说说身边的自然万物",
                     "description": [
-                        "观察你身边的自然景物，选择一种花、草、树、虫或鸟兽，用汪曾祺式的笔触描写它。",
+                        "汪曾祺笔下的一草一木，都很天真、质朴，透出勃勃生机。"
+                        "《人间草木》流露着亲切的人间烟火气，读完这本书，"
+                        "跟自然握握手，去感受身边的自然万物，谈谈你的\"草木情\"吧。",
                     ],
                     "inputType": "textarea",
-                    "placeholder": "写下你的观察与感受...",
-                    "wordLimit": "200-500字",
+                    "placeholder": "在此输入你的想法...",
+                },
+                {
+                    "id": "exchange-2",
+                    "title": "话题二：谈谈描画自然的方法",
+                    "description": [
+                        "汪曾祺被誉为\"中国最后一个纯粹的文人，中国最后一个士大夫\"。"
+                        "细细品读汪曾祺的文字，思考描画自然的方法，谈谈你的收获。",
+                    ],
+                    "inputType": "textarea",
+                    "placeholder": "在此输入你的想法...",
+                },
+            ],
+        },
+    },
+    {
+        "theme_id": 1,
+        "block_type": "reading_recommendation",
+        "title": "阅读推荐",
+        "sort_order": 6,
+        "config_json": {
+            "id": "exchange-rec-1",
+            "type": "reading_recommendation",
+            "tab_key": "exchange",
+            "tab_label": "读后交流",
+            "tab_icon": "💬",
+            "title": "阅读推荐",
+            "classics": "孙犁《白洋淀纪事》",
+            "essays": "郁达夫《故都的秋》，林语堂《秋天的况味》，冯骥才《冬日絮语》，丰子恺《春》，迟子建《春天是一点一点化开的》",
+        },
+    },
+    # ── Tab: 美文欣赏 ──────────────────────────────────────────────────────
+    {
+        "theme_id": 1,
+        "block_type": "appreciation_list",
+        "title": "美文欣赏",
+        "sort_order": 7,
+        "config_json": {
+            "id": "appreciation-list-1",
+            "type": "appreciation_list",
+            "tab_key": "appreciation",
+            "tab_label": "美文欣赏",
+            "tab_icon": "✨",
+            "items": [
+                {
+                    "id": "article-1",
+                    "tag": "美文赏析一",
+                    "intro": (
+                        "那城，那河，那古路，那山影，那座诗意般秋色纷呈的济南城，"
+                        "是否恰似你幻想中的秋景？作者把对秋天的钟爱，寄于济南那片叠彩幻化、"
+                        "层出不穷的山水间，通过对秋天景色的细腻描绘，述说济南古城静美的诗境。"
+                    ),
+                    "article": {
+                        "title": "济南的秋天",
+                        "author": "老舍",
+                        "allowAnnotation": False,
+                        "paragraphs": [
+                            {
+                                "text": (
+                                    "济南的秋天是诗境的。设若你的幻想中有个中古的老城，"
+                                    "有睡着了的大城楼，有狭窄的古石路，有宽厚的石城墙，"
+                                    "环城流着一道清溪，倒映着山影，岸上蹲着红袍绿裤的小妞儿。"
+                                    "你的幻想中要是这么个境界，那便是个济南。"
+                                ),
+                                "annotations": [
+                                    {
+                                        "id": "b1",
+                                        "start": 0,
+                                        "end": 11,
+                                        "note": "一句话统领全文。",
+                                        "type": "builtin",
+                                    }
+                                ],
+                            },
+                            {
+                                "text": (
+                                    "请你在秋天来。那城，那河，那古路，那山影，"
+                                    "是终年给你预备着的。可是，加上济南的秋色，"
+                                    "济南由古朴的画境转入静美的诗境中了。"
+                                ),
+                                "annotations": [],
+                            },
+                        ],
+                    },
                 },
             ],
         },
@@ -260,22 +353,27 @@ BLOCKS_THEME_READING = [
 ]
 
 # ── Blocks：主题活动（theme_id=2） ────────────────────────────────────────
+# Tab 映射（来自 themeActivityMock.ts）：
+#   step1 → 拍羊城秋色  📸
+#   step2 → 写羊城秋色  ✍️
+#   step3 → 展羊城秋色  🖼️
 BLOCKS_THEME_ACTIVITY = [
-    # ── Tab: step1 拍羊城秋色 ──
+    # ── Tab: step1 拍羊城秋色 ──────────────────────────────────────────────
     {
         "theme_id": 2,
         "block_type": "task_driven",
         "title": "拍羊城秋色",
         "sort_order": 1,
-        "is_required": True,
         "config_json": {
             "id": "activity-task-1",
             "type": "task_driven",
+            "tab_key": "step1",
+            "tab_label": "拍羊城秋色",
+            "tab_icon": "📸",
             "title": "拍羊城秋色",
             "iconName": "Image",
             "themeColor": "green",
             "submitText": "提交任务",
-            "tab": "step1",
             "tasks": [
                 {
                     "id": "act-1-1",
@@ -306,21 +404,22 @@ BLOCKS_THEME_ACTIVITY = [
             ],
         },
     },
-    # ── Tab: step2 写羊城秋色 ──
+    # ── Tab: step2 写羊城秋色 ──────────────────────────────────────────────
     {
         "theme_id": 2,
         "block_type": "task_driven",
         "title": "写羊城秋色",
         "sort_order": 2,
-        "is_required": True,
         "config_json": {
             "id": "activity-task-2",
             "type": "task_driven",
+            "tab_key": "step2",
+            "tab_label": "写羊城秋色",
+            "tab_icon": "✍️",
             "title": "写羊城秋色",
             "iconName": "Edit3",
             "themeColor": "purple",
             "submitText": "提交任务",
-            "tab": "step2",
             "tasks": [
                 {
                     "id": "act-2-1",
@@ -348,21 +447,22 @@ BLOCKS_THEME_ACTIVITY = [
             ],
         },
     },
-    # ── Tab: step3 展羊城秋色 ──
+    # ── Tab: step3 展羊城秋色 ──────────────────────────────────────────────
     {
         "theme_id": 2,
         "block_type": "task_driven",
         "title": "展羊城秋色",
         "sort_order": 3,
-        "is_required": True,
         "config_json": {
             "id": "activity-task-3",
             "type": "task_driven",
+            "tab_key": "step3",
+            "tab_label": "展羊城秋色",
+            "tab_icon": "🖼️",
             "title": "展羊城秋色",
             "iconName": "Map",
             "themeColor": "indigo",
             "submitText": "提交任务",
-            "tab": "step3",
             "tasks": [
                 {
                     "id": "act-3-1",
@@ -380,17 +480,22 @@ BLOCKS_THEME_ACTIVITY = [
 ]
 
 # ── Blocks：技法学习（theme_id=3） ───────────────────────────────────────
+# Tab 映射（来自 techniqueLearningMock.ts）：
+#   technique-1 → 积累入格——"语言风格借鉴法"  ✍️  (sort_order 1-4)
+#   technique-2 → 审题立意——"添枝加叶法"      🌿  (sort_order 5-6)
 BLOCKS_TECHNIQUE_LEARNING = [
-    # ── Tab: technique-1 语言风格借鉴法 ──
+    # ── Tab: technique-1 语言风格借鉴法 ───────────────────────────────────
     {
         "theme_id": 3,
         "block_type": "description",
         "title": "积累入格——「语言风格借鉴法」",
         "sort_order": 1,
-        "is_required": False,
         "config_json": {
             "id": "tech-1-desc",
             "type": "description",
+            "tab_key": "technique-1",
+            "tab_label": "积累入格——\u201c语言风格借鉴法\u201d",
+            "tab_icon": "✍️",
             "iconName": "BookOpen",
             "themeColor": "blue",
             "title": "积累入格——「语言风格借鉴法」",
@@ -399,7 +504,6 @@ BLOCKS_TECHNIQUE_LEARNING = [
                 "要用准确、明白、流畅的语言表达出来。因作者年龄、性格、阅历、"
                 "生活环境和写作目的等因素的影响，作品往往呈现出不同的语言风格。"
             ),
-            "tab": "technique-1",
         },
     },
     {
@@ -407,14 +511,15 @@ BLOCKS_TECHNIQUE_LEARNING = [
         "block_type": "markdown",
         "title": "方法指导",
         "sort_order": 2,
-        "is_required": False,
         "config_json": {
             "id": "tech-1-markdown",
             "type": "markdown",
+            "tab_key": "technique-1",
+            "tab_label": "积累入格——\u201c语言风格借鉴法\u201d",
+            "tab_icon": "✍️",
             "title": "方法指导",
             "iconName": "Book",
             "themeColor": "indigo",
-            "tab": "technique-1",
             "content": (
                 "让我们一起品味平实质朴、形象生动、风趣幽默三种常见语言风格的文段，"
                 "有意识地去借鉴模仿，以形成自己的语言风格。\n\n"
@@ -434,14 +539,15 @@ BLOCKS_TECHNIQUE_LEARNING = [
         "block_type": "editable_table",
         "title": "小试身手",
         "sort_order": 3,
-        "is_required": False,
         "config_json": {
             "id": "tech-1-editable",
             "type": "editable_table",
+            "tab_key": "technique-1",
+            "tab_label": "积累入格——\u201c语言风格借鉴法\u201d",
+            "tab_icon": "✍️",
             "title": "小试身手",
             "iconName": "Edit3",
             "themeColor": "green",
-            "tab": "technique-1",
             "description": "阅读下面一段文字，分析其语言风格。",
             "headers": ["示例", "点评"],
             "rows": [
@@ -472,15 +578,16 @@ BLOCKS_TECHNIQUE_LEARNING = [
         "block_type": "task_driven",
         "title": "实战操练",
         "sort_order": 4,
-        "is_required": True,
         "config_json": {
             "id": "tech-1-task",
             "type": "task_driven",
+            "tab_key": "technique-1",
+            "tab_label": "积累入格——\u201c语言风格借鉴法\u201d",
+            "tab_icon": "✍️",
             "title": "实战操练",
             "iconName": "Target",
             "themeColor": "purple",
             "submitText": "提交练习",
-            "tab": "technique-1",
             "tasks": [
                 {
                     "id": "t1-task-1",
@@ -494,16 +601,18 @@ BLOCKS_TECHNIQUE_LEARNING = [
             ],
         },
     },
-    # ── Tab: technique-2 添枝加叶法 ──
+    # ── Tab: technique-2 添枝加叶法 ───────────────────────────────────────
     {
         "theme_id": 3,
         "block_type": "description",
         "title": "审题立意——「添枝加叶法」",
         "sort_order": 5,
-        "is_required": False,
         "config_json": {
             "id": "tech-2-desc",
             "type": "description",
+            "tab_key": "technique-2",
+            "tab_label": "审题立意——\u201c添枝加叶法\u201d",
+            "tab_icon": "🌿",
             "iconName": "BookOpen",
             "themeColor": "blue",
             "title": "审题立意——「添枝加叶法」",
@@ -511,7 +620,6 @@ BLOCKS_TECHNIQUE_LEARNING = [
                 "「添枝加叶法」，是在题目前后添加一些有关人、事、物、景、情的词语，"
                 "使题意更加明显、完整的审题方法。"
             ),
-            "tab": "technique-2",
         },
     },
     {
@@ -519,14 +627,15 @@ BLOCKS_TECHNIQUE_LEARNING = [
         "block_type": "markdown",
         "title": "方法指导 - 题目链接",
         "sort_order": 6,
-        "is_required": False,
         "config_json": {
             "id": "tech-2-markdown",
             "type": "markdown",
+            "tab_key": "technique-2",
+            "tab_label": "审题立意——\u201c添枝加叶法\u201d",
+            "tab_icon": "🌿",
             "title": "方法指导",
             "iconName": "Book",
             "themeColor": "indigo",
-            "tab": "technique-2",
             "content": (
                 "### 题目链接\n"
                 "《我》《绿》《秋天》《眼神》《出发》《诱惑》\n\n"
@@ -583,10 +692,6 @@ BADGES = [
 ]
 
 # ── Demo Users ──────────────────────────────────────────────────────────────
-# 密码明文（仅供开发测试，生产环境请替换）：
-#   teacher01  →  Teacher@123
-#   S001       →  Student@123
-#   S002       →  Student@123
 DEMO_USERS = [
     {
         "username": "teacher01",
@@ -658,12 +763,17 @@ async def insert_block(session: AsyncSession, data: dict) -> None:
     import json
     await session.execute(
         text("""
-        INSERT INTO blocks (theme_id, block_type, title, sort_order, is_required, config_json)
-        VALUES (:theme_id, :block_type, :title, :sort_order, :is_required, CAST(:config_json AS jsonb))
+        INSERT INTO blocks (theme_id, block_type, title, sort_order, config_json)
+        VALUES (:theme_id, :block_type, :title, :sort_order, CAST(:config_json AS jsonb))
         ON CONFLICT DO NOTHING
         """),
-        {**data,
-            "config_json": json.dumps(data["config_json"], ensure_ascii=False)},
+        {
+            "theme_id":   data["theme_id"],
+            "block_type": data["block_type"],
+            "title":      data["title"],
+            "sort_order": data["sort_order"],
+            "config_json": json.dumps(data["config_json"], ensure_ascii=False),
+        },
     )
 
 
@@ -685,10 +795,6 @@ async def upsert_badge(session: AsyncSession, data: dict) -> None:
 
 
 async def upsert_user(session: AsyncSession, data: dict) -> None:
-    """
-    使用 bcrypt 对明文密码哈希后写入 users 表。
-    以 username 为唯一键做幂等 upsert（重复执行不会重复插入）。
-    """
     import bcrypt
     hashed = bcrypt.hashpw(
         data["password"].encode(), bcrypt.gensalt()
@@ -728,13 +834,11 @@ async def run_seed() -> None:
                 await upsert_unit(session, u)
 
             print("▶ 插入 Themes ...")
-            # 重置 theme 的 id 序列（避免手动指定 id 与 autoincrement 冲突）
             await session.execute(text("SELECT setval('themes_id_seq', 10, false)"))
             for t in THEMES:
                 await upsert_theme(session, t)
 
             print("▶ 插入 Blocks（主题阅读）...")
-            # 先删除旧 blocks（幂等重置）
             await session.execute(text("DELETE FROM blocks WHERE theme_id = 1"))
             for b in BLOCKS_THEME_READING:
                 await insert_block(session, b)
