@@ -30,6 +30,7 @@ from app.schemas.schemas import (
     ThemeCreate, ThemeDetail, ThemeRead, ThemeUpdate,
     UnitCreate, UnitDetail, UnitRead, UnitUpdate,
     StudentBadgeRead,
+    BadgeRead,
 )
 
 # ---------------------------------------------------------------------------
@@ -396,17 +397,44 @@ async def get_responses(student_id: str, block_id: int, db: DB):
     return responses
 
 
-@student_router.get("/badges/{student_id}", response_model=list[StudentBadgeRead])
+@student_router.get("/badges/{student_id}", response_model=list[BadgeRead])
 async def get_student_badges(student_id: str, db: DB):
-    """获取学生已获得的徽章列表。"""
-    rows = (
+    """
+    获取全部徽章列表，并标注该学生是否已获得（earned 字段）。
+    未获得的徽章 earned=False，前端渲染为灰色锁定状态。
+    """
+    # 1. 查询系统中所有徽章
+    all_badges = (
         await db.execute(
-            select(StudentBadge)
-            .where(StudentBadge.student_id == student_id)
-            .options(selectinload(StudentBadge.badge))
+            select(Badge).order_by(Badge.unit_id.nulls_last(), Badge.id)
         )
     ).scalars().all()
-    return rows
+
+    # 2. 查询该学生已获得的徽章 ID 集合
+    earned_rows = (
+        await db.execute(
+            select(StudentBadge.badge_id).where(
+                StudentBadge.student_id == student_id
+            )
+        )
+    ).scalars().all()
+    earned_ids: set[int] = set(earned_rows)
+
+    # 3. 合并：为每个徽章注入 earned 状态
+    result: list[BadgeRead] = []
+    for badge in all_badges:
+        result.append(
+            BadgeRead(
+                id=badge.id,
+                unit_id=badge.unit_id,
+                name=badge.name,
+                icon=badge.icon,
+                description=badge.description,
+                earned=badge.id in earned_ids,   # ← 核心：注入状态
+            )
+        )
+
+    return result
 
 
 @student_router.post("/evaluate", response_model=EvaluatorResponse)
