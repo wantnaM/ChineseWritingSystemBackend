@@ -24,7 +24,8 @@ tests/test_api.py
   ✅ GET    /api/v1/student/themes/{id}/blocks
   ✅ POST   /api/v1/student/responses
   ✅ GET    /api/v1/student/responses/{student_id}/block/{block_id}
-  ✅ PATCH  /api/v1/student/progress
+  ✅ GET    /api/v1/student/progress/{student_id}/theme/{theme_id}
+  ✅ PATCH  /api/v1/student/progress/{student_id}/theme/{theme_id}
   ✅ GET    /api/v1/student/badges/{student_id}
   ✅ POST   /api/v1/student/evaluate
 
@@ -45,12 +46,22 @@ import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 # ── 确保项目根目录在 sys.path（运行 `pytest tests/test_api.py` 时也能 import main）
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT_DIR)
 
-# ── 环境变量（测试库使用 SQLite in-memory 或测试 PG） ──
+# ── 从项目根目录的 .env 文件加载环境变量 ──────────────────────────────────────
+# 优先级：已有环境变量 > .env 文件 > 下方硬编码兜底值
+# 这样本地开发只需维护一份 .env，无需修改测试代码。
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(ROOT_DIR, ".env"), override=False)
+except ImportError:
+    pass  # python-dotenv 未安装时跳过，依赖下方 setdefault 兜底
+
+# 兜底默认值（仅在 .env 和环境变量均未设置时生效）
 os.environ.setdefault(
     "DATABASE_URL",
-    "postgresql+asyncpg://postgres:123456@localhost:5432/writing_system",
+    "postgresql+asyncpg://postgres:postgres@localhost:5432/writing_system",
 )
 os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-test-key")
 
@@ -533,25 +544,63 @@ class TestStudentEndpoints:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    # ── POST /student/evaluate（WebSocket，非 HTTP）────────────────────────── #
+    # ── POST /student/evaluate ────────────────────────────────────────────── #
 
-    async def test_evaluate_http_not_found(self, client: AsyncClient):
+    async def test_evaluate_missing_fields_422(self, client: AsyncClient):
+        """缺少必填字段 student_text，Pydantic 校验失败应返回 422"""
+        resp = await client.post(
+            "/api/v1/student/evaluate",
+            json={
+                "student_id": "STU_TEST_001",
+                "block_id": 999999,
+                "theme_id": 1,
+                "component_type": "TaskDriven",
+                # 故意不传 student_text
+            },
+            headers=HEADERS,
+        )
+        assert resp.status_code == 422
+
+    async def test_evaluate_block_not_found(self, client: AsyncClient):
+        """block_id 不存在应返回 404"""
+        resp = await client.post(
+            "/api/v1/student/evaluate",
+            json={
+                "student_id": "STU_TEST_001",
+                "block_id": 999999,
+                "theme_id": 1,
+                "component_type": "TaskDriven",
+                "student_text": "这是一段测试写作内容。",
+                "context": {},
+            },
+            headers=HEADERS,
+        )
+        assert resp.status_code == 404
+
+    async def test_evaluate_valid_payload_accepted(self, client: AsyncClient, block_id: int):
         """
-        evaluate 是 WebSocket 接口（ws://host/ws/evaluate?student_id=...），
-        HTTP POST 路径不存在，预期 404 或 405。
+        传入完整合法请求体，接口应接受（不返回 422/404）。
+        真实 Anthropic 调用在 CI 中会失败（无密钥），
+        此处只验证路由和参数校验层正常工作。
         """
         resp = await client.post(
             "/api/v1/student/evaluate",
-            json={},
+            json={
+                "student_id": "STU_TEST_001",
+                "block_id": block_id,
+                "theme_id": 1,
+                "component_type": "TaskDriven",
+                "student_text": "校园的早晨，雾气像轻纱一样笼罩着操场，鸟鸣声声，如同一曲清晨的乐章。",
+                "context": {
+                    "instruction": "请模仿汪曾祺的语言风格描写晨景",
+                    "evaluator_focus": ["是否使用了比喻", "语言是否质朴自然"],
+                },
+            },
             headers=HEADERS,
         )
-        assert resp.status_code in (404, 405)
-
-    async def test_evaluate_ws_endpoint_exists(self, client: AsyncClient):
-        """WebSocket 端点在 /ws/evaluate，GET 请求应返回 426 Upgrade Required 或 400。"""
-        resp = await client.get("/ws/evaluate?student_id=STU_TEST_001")
-        # httpx 不走 WebSocket 握手，会得到 400/426/403，不会是 404
-        assert resp.status_code != 404
+        # 422 = 参数错误；404 = block 不存在；均不应出现
+        assert resp.status_code not in (
+            422, 404), f"意外状态码: {resp.status_code} {resp.text}"
 
 
 # =========================================================================== #

@@ -191,27 +191,28 @@ class StudentResponseRead(BaseModel):
 
 
 # ===========================================================================
-# WebSocket Evaluator Payload
+# Evaluator Payload
 # ===========================================================================
 
-class EvaluatorWSPayload(BaseModel):
-    """学生端 WebSocket 发送给 Evaluator Agent 的请求体。"""
+class EvaluatorPayload(BaseModel):
+    """POST /api/v1/student/evaluate 请求体。"""
     student_id: str
-    theme_id: int
     block_id: int
-    current_step: int
-    component_type: str
-    student_text: str
+    theme_id: int
+    component_type: str = Field(
+        default="TaskDriven",
+        description="对应前端组件类型，决定评测策略"
+    )
+    student_text: str = Field(..., description="学生写作内容")
     context: dict[str, Any] = Field(
-        ...,
-        description="包含 instruction、evaluator_focus 等评改上下文"
+        default_factory=dict,
+        description="评测上下文，如 {instruction, evaluator_focus, reference_text}"
     )
 
 
-class EvaluatorWSResponse(BaseModel):
-    """Evaluator Agent 返回给前端的流式片段。"""
-    type: Literal["delta", "done", "error"]
-    content: str = ""
+class EvaluatorResponse(BaseModel):
+    """POST /api/v1/student/evaluate 响应体。"""
+    feedback: str = Field(..., description="AI 评测反馈文本")
 
 
 # ===========================================================================

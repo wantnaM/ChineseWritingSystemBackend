@@ -4,16 +4,14 @@ FastAPI 路由定义
   - /api/v1/units     - 单元 CRUD
   - /api/v1/themes    - 主题 CRUD（含 Block 管理）
   - /api/v1/blocks    - Block CRUD
-  - /api/v1/student   - 学生端接口（进度、作答）
-  - /ws/evaluate      - WebSocket 实时评测
+  - /api/v1/student   - 学生端接口（进度、作答、AI 评测）
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
-from app.agents.evaluator_agent import ws_evaluate_endpoint, manager as ws_manager
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,7 +22,7 @@ from app.models.models import (
 )
 from app.schemas.schemas import (
     BlockCreate, BlockRead, BlockUpdate,
-    EvaluatorWSPayload,
+    EvaluatorPayload, EvaluatorResponse,
     MessageResponse,
     PaginatedResponse, Pagination,
     StudentProgressRead, StudentProgressUpdate,
@@ -42,11 +40,10 @@ DB = Annotated[AsyncSession, Depends(get_session)]
 # ---------------------------------------------------------------------------
 # Routers
 # ---------------------------------------------------------------------------
-unit_router = APIRouter(prefix="/units", tags=["单元 Unit"])
-theme_router = APIRouter(prefix="/themes", tags=["主题 Theme"])
-block_router = APIRouter(prefix="/blocks", tags=["内容块 Block"])
+unit_router = APIRouter(prefix="/units",   tags=["单元 Unit"])
+theme_router = APIRouter(prefix="/themes",  tags=["主题 Theme"])
+block_router = APIRouter(prefix="/blocks",  tags=["内容块 Block"])
 student_router = APIRouter(prefix="/student", tags=["学生端 Student"])
-ws_router = APIRouter(tags=["WebSocket"])
 
 
 # ===========================================================================
@@ -94,12 +91,9 @@ async def get_unit(unit_id: int, db: DB):
         await db.execute(
             select(Unit)
             .where(Unit.id == unit_id)
-            .options(
-                selectinload(Unit.themes).selectinload(Theme.blocks)
-            )
+            .options(selectinload(Unit.themes).selectinload(Theme.blocks))
         )
     ).scalar_one_or_none()
-
     if not unit:
         raise HTTPException(status_code=404, detail="单元不存在")
     return unit
@@ -111,7 +105,6 @@ async def update_unit(unit_id: int, body: UnitUpdate, db: DB):
     unit = await db.get(Unit, unit_id)
     if not unit:
         raise HTTPException(status_code=404, detail="单元不存在")
-
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(unit, k, v)
     await db.commit()
@@ -131,7 +124,7 @@ async def delete_unit(unit_id: int, db: DB):
 
 
 # ===========================================================================
-# Theme CRUD（主题）
+# Theme CRUD
 # ===========================================================================
 
 @theme_router.get("", response_model=list[ThemeRead])
@@ -142,9 +135,8 @@ async def list_themes_by_unit(
     """获取某单元下的所有主题。"""
     themes = (
         await db.execute(
-            select(Theme)
-            .where(Theme.unit_id == unit_id)
-            .order_by(Theme.sort_order)
+            select(Theme).where(Theme.unit_id ==
+                                unit_id).order_by(Theme.sort_order)
         )
     ).scalars().all()
     return themes
@@ -160,7 +152,6 @@ async def create_theme(
     unit = await db.get(Unit, unit_id)
     if not unit:
         raise HTTPException(status_code=404, detail="单元不存在")
-
     theme = Theme(**body.model_dump(), unit_id=unit_id)
     db.add(theme)
     await db.commit()
@@ -168,29 +159,12 @@ async def create_theme(
     return theme
 
 
-@theme_router.get("/{theme_id}", response_model=ThemeDetail)
-async def get_theme(theme_id: int, db: DB):
-    """获取主题详情（含 Block 列表）。"""
-    theme = (
-        await db.execute(
-            select(Theme)
-            .where(Theme.id == theme_id)
-            .options(selectinload(Theme.blocks))
-        )
-    ).scalar_one_or_none()
-
-    if not theme:
-        raise HTTPException(status_code=404, detail="主题不存在")
-    return theme
-
-
 @theme_router.patch("/{theme_id}", response_model=ThemeRead)
 async def update_theme(theme_id: int, body: ThemeUpdate, db: DB):
-    """更新主题（教师微调后调用）。"""
+    """更新主题信息。"""
     theme = await db.get(Theme, theme_id)
     if not theme:
         raise HTTPException(status_code=404, detail="主题不存在")
-
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(theme, k, v)
     await db.commit()
@@ -200,13 +174,12 @@ async def update_theme(theme_id: int, body: ThemeUpdate, db: DB):
 
 @theme_router.post("/{theme_id}/publish", response_model=ThemeRead)
 async def publish_theme(theme_id: int, db: DB):
-    """发布主题（教师确认后调用，解锁学生访问权限）。"""
+    """发布主题（解锁学生访问）。"""
     theme = await db.get(Theme, theme_id)
     if not theme:
         raise HTTPException(status_code=404, detail="主题不存在")
-
+    theme.is_published = True  # type: ignore
     theme.status = "published"  # type: ignore
-    theme.is_published = True
     await db.commit()
     await db.refresh(theme)
     return theme
@@ -214,6 +187,7 @@ async def publish_theme(theme_id: int, db: DB):
 
 @theme_router.delete("/{theme_id}", response_model=MessageResponse)
 async def delete_theme(theme_id: int, db: DB):
+    """删除主题（级联删除 Block）。"""
     theme = await db.get(Theme, theme_id)
     if not theme:
         raise HTTPException(status_code=404, detail="主题不存在")
@@ -223,7 +197,7 @@ async def delete_theme(theme_id: int, db: DB):
 
 
 # ===========================================================================
-# Block CRUD（内容块）
+# Block CRUD
 # ===========================================================================
 
 @block_router.get("", response_model=list[BlockRead])
@@ -231,7 +205,7 @@ async def list_blocks(
     db: DB,
     theme_id: int = Query(..., description="所属主题 ID"),
 ):
-    """获取某主题下的所有 Block（按 sort_order 排序）。"""
+    """获取某主题下的所有 Block。"""
     blocks = (
         await db.execute(
             select(Block)
@@ -252,7 +226,6 @@ async def create_block(
     theme = await db.get(Theme, theme_id)
     if not theme:
         raise HTTPException(status_code=404, detail="主题不存在")
-
     block = Block(**body.model_dump(), theme_id=theme_id)
     db.add(block)
     await db.commit()
@@ -274,7 +247,6 @@ async def update_block(block_id: int, body: BlockUpdate, db: DB):
     block = await db.get(Block, block_id)
     if not block:
         raise HTTPException(status_code=404, detail="Block 不存在")
-
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(block, k, v)
     await db.commit()
@@ -296,7 +268,7 @@ async def delete_block(block_id: int, db: DB):
 async def reorder_blocks(
     db: DB,
     theme_id: int = Query(...),
-    ordered_ids: list[int] = ...,
+    ordered_ids: list[int] = Query(...),
 ):
     """批量更新同一主题内 Block 的排序。传入有序的 block_id 列表。"""
     for idx, block_id in enumerate(ordered_ids):
@@ -311,11 +283,13 @@ async def reorder_blocks(
 # Student API（学生端）
 # ===========================================================================
 
-@student_router.get("/themes/{theme_id}/blocks", response_model=list[BlockRead])
+@student_router.get(
+    "/themes/{theme_id}/blocks",
+    response_model=list[BlockRead],
+)
 async def get_published_blocks(theme_id: int, db: DB):
     """
     学生端：获取已发布主题的 Block 列表。
-    前端按 sort_order 逐步渲染，配合 Zustand currentStep 实现步进式学习。
     """
     theme = await db.get(Theme, theme_id)
     if not theme or not theme.is_published:
@@ -323,19 +297,25 @@ async def get_published_blocks(theme_id: int, db: DB):
 
     blocks = (
         await db.execute(
-            select(Block).where(Block.theme_id == theme_id).order_by(Block.sort_order)
+            select(Block).where(Block.theme_id ==
+                                theme_id).order_by(Block.sort_order)
         )
     ).scalars().all()
     return blocks
 
 
-@student_router.get("/progress/{student_id}/theme/{theme_id}", response_model=StudentProgressRead)
+@student_router.get(
+    "/progress/{student_id}/theme/{theme_id}",
+    response_model=StudentProgressRead,
+)
 async def get_progress(student_id: str, theme_id: int, db: DB):
     """获取学生在某主题的进度。若不存在则初始化。"""
     progress = (
         await db.execute(
-            select(StudentProgress)
-            .where(StudentProgress.student_id == student_id, StudentProgress.theme_id == theme_id)
+            select(StudentProgress).where(
+                StudentProgress.student_id == student_id,
+                StudentProgress.theme_id == theme_id,
+            )
         )
     ).scalar_one_or_none()
 
@@ -347,18 +327,20 @@ async def get_progress(student_id: str, theme_id: int, db: DB):
     return progress
 
 
-@student_router.patch("/progress/{student_id}/theme/{theme_id}", response_model=StudentProgressRead)
+@student_router.patch(
+    "/progress/{student_id}/theme/{theme_id}",
+    response_model=StudentProgressRead,
+)
 async def update_progress(
     student_id: str, theme_id: int, body: StudentProgressUpdate, db: DB
 ):
-    """
-    学生完成一个 Block 后调用，推进 current_block_order。
-    前端在 onComplete 事件中触发此接口。
-    """
+    """学生完成一个 Block 后调用，推进 current_block_order。"""
     progress = (
         await db.execute(
-            select(StudentProgress)
-            .where(StudentProgress.student_id == student_id, StudentProgress.theme_id == theme_id)
+            select(StudentProgress).where(
+                StudentProgress.student_id == student_id,
+                StudentProgress.theme_id == theme_id,
+            )
         )
     ).scalar_one_or_none()
 
@@ -369,17 +351,21 @@ async def update_progress(
     progress.current_block_order = body.current_block_order  # type: ignore
     progress.is_completed = body.is_completed  # type: ignore
     if body.is_completed and not progress.completed_at:
-        from datetime import timezone
-        progress.completed_at = __import__("datetime").datetime.now(timezone.utc)  # type: ignore
+        from datetime import datetime, timezone
+        progress.completed_at = datetime.now(timezone.utc)  # type: ignore
 
     await db.commit()
     await db.refresh(progress)
     return progress
 
 
-@student_router.post("/responses", response_model=StudentResponseRead, status_code=status.HTTP_201_CREATED)
+@student_router.post(
+    "/responses",
+    response_model=StudentResponseRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def submit_response(body: StudentResponseCreate, db: DB):
-    """学生提交 Block 作答，触发后续 AI 异步评测。"""
+    """学生提交 Block 作答。"""
     block = await db.get(Block, body.block_id)
     if not block:
         raise HTTPException(status_code=404, detail="Block 不存在")
@@ -388,13 +374,13 @@ async def submit_response(body: StudentResponseCreate, db: DB):
     db.add(response)
     await db.commit()
     await db.refresh(response)
-
-    # TODO: 异步派发 Evaluator Agent 任务（通过 Celery / BackgroundTasks）
-
     return response
 
 
-@student_router.get("/responses/{student_id}/block/{block_id}", response_model=list[StudentResponseRead])
+@student_router.get(
+    "/responses/{student_id}/block/{block_id}",
+    response_model=list[StudentResponseRead],
+)
 async def get_responses(student_id: str, block_id: int, db: DB):
     """获取学生在某 Block 的历史作答记录。"""
     responses = (
@@ -423,32 +409,20 @@ async def get_student_badges(student_id: str, db: DB):
     return rows
 
 
-# ===========================================================================
-# WebSocket — Evaluator Agent 实时批改
-# ===========================================================================
-
-@ws_router.websocket("/ws/evaluate")
-async def ws_evaluate(
-    websocket: WebSocket,
-    student_id: str = Query(..., description="学生唯一标识"),
-):
+@student_router.post("/evaluate", response_model=EvaluatorResponse)
+async def evaluate_writing(body: EvaluatorPayload, db: DB):
     """
-    学生写作实时评测 WebSocket 通道，接入 EvaluatorAgent。
-
-    连接方式:
-      ws://host/ws/evaluate?student_id=user_123
-
-    协议（双向 JSON）:
-      Client → Server: EvaluatorWSPayload
-      Server → Client: EvaluatorWSResponse (流式 delta / done / error)
+    触发 AI 写作评测，同步返回反馈文本。
+    调用 EvaluatorAgent 构建 Prompt 并请求 Anthropic API。
     """
-    await ws_evaluate_endpoint(websocket, student_id)
+    # 验证 block 存在
+    block = await db.get(Block, body.block_id)
+    if not block:
+        raise HTTPException(status_code=404, detail="Block 不存在")
 
-
-@ws_router.get("/ws/stats", tags=["WebSocket"])
-async def ws_stats():
-    """查看当前活跃 WebSocket 连接数（运维用）。"""
-    return {"active_connections": ws_manager.active_count}
+    from app.agents.evaluator_agent import agent
+    feedback = await agent.evaluate(body)
+    return EvaluatorResponse(feedback=feedback)
 
 
 # ===========================================================================
