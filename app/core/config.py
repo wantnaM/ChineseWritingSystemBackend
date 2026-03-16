@@ -75,6 +75,14 @@ class Settings(BaseSettings):
             "postgresql+asyncpg://", "postgresql+psycopg2://"
         )
 
+    # ------------------------------------------------------------------
+    # Kimi (Moonshot AI) —— 兼容 OpenAI 协议
+    # ------------------------------------------------------------------
+    KIMI_API_KEY: str = ""
+    KIMI_BASE_URL: str = "https://api.moonshot.cn/v1"
+    KIMI_MODEL: str = "kimi-k2.5"
+    KIMI_MAX_TOKENS: int = 8192
+
 
 # 全局单例 —— 其他模块直接 from app.core.config import settings
 settings = Settings()

@@ -4,19 +4,20 @@
 职责：
   - 接收学生的写作内容（通过 HTTP POST /student/evaluate）
   - 根据当前 Block 的评测上下文构建专属 Prompt
-  - 调用 Anthropic claude，返回伴学反馈文本
+  - 调用 Kimi API（兼容 OpenAI 协议），返回伴学反馈文本
 
 架构说明：
-  - EvaluatorAgent   核心评测逻辑（Prompt 构建 + Anthropic 调用）
+  - EvaluatorAgent   核心评测逻辑（Prompt 构建 + Kimi 调用）
   - agent            全局单例，供路由层直接注入
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
-import anthropic
+from openai import OpenAI  # pip install openai
 
 from app.core.config import settings
 from app.schemas.schemas import EvaluatorPayload
@@ -85,61 +86,71 @@ DEFAULT_STRATEGY: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 class EvaluatorAgent:
-    """同步（非流式）写作评测智能体。"""
+    """同步（非流式）写作评测智能体，使用 Kimi API（兼容 OpenAI 协议）。"""
 
     def __init__(self) -> None:
-        self._client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        # OpenAI SDK 指向 Kimi 的兼容端点
+        self._client = OpenAI(
+            api_key=settings.KIMI_API_KEY,
+            base_url=settings.KIMI_BASE_URL,
+        )
 
-    def _build_prompt(self, payload: EvaluatorPayload) -> str:
+    def _build_messages(self, payload: EvaluatorPayload) -> list[dict[str, str]]:
+        """构建符合 OpenAI messages 格式的对话列表。"""
         strategy = COMPONENT_EVAL_STRATEGIES.get(
             payload.component_type, DEFAULT_STRATEGY
         )
         ctx = payload.context
 
-        parts = [
+        # system 消息：角色设定 + 评测策略
+        system_parts = [
             "你是一位经验丰富的语文教师，专注于初中写作教学。",
             "",
             strategy["focus_prompt"],
-            "",
         ]
+        system_content = "\n".join(system_parts)
+
+        # user 消息：上下文 + 学生作品
+        user_parts: list[str] = []
 
         if ctx.get("instruction"):
-            parts += [f"【写作任务要求】\n{ctx['instruction']}", ""]
+            user_parts += [f"【写作任务要求】\n{ctx['instruction']}", ""]
 
         if ctx.get("reference_text"):
-            parts += [f"【参考范文】\n{ctx['reference_text']}", ""]
+            user_parts += [f"【参考范文】\n{ctx['reference_text']}", ""]
 
         if ctx.get("evaluator_focus"):
             focuses = "\n".join(f"- {f}" for f in ctx["evaluator_focus"])
-            parts += [f"【重点评测方向】\n{focuses}", ""]
+            user_parts += [f"【重点评测方向】\n{focuses}", ""]
 
-        parts += [
+        user_parts += [
             f"【学生作品】\n{payload.student_text}",
             "",
             "请给出评测反馈（200字以内，语气亲切，具体可操作）：",
         ]
 
-        return "\n".join(parts)
+        return [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": "\n".join(user_parts)},
+        ]
 
     async def evaluate(self, payload: EvaluatorPayload) -> str:
-        """调用 Anthropic API，返回评测反馈文本。"""
-        prompt = self._build_prompt(payload)
+        """调用 Kimi API，返回评测反馈文本。"""
+        messages = self._build_messages(payload)
+        print(settings)
         try:
-            # 使用同步客户端包在异步中运行（Anthropic SDK 同步调用，FastAPI 用 run_in_executor 也可，
-            # 此处直接调用足够，因为 Anthropic SDK 内部是线程安全的）
-            import asyncio
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
-                lambda: self._client.messages.create(
-                    model=settings.ANTHROPIC_MODEL,
-                    max_tokens=settings.ANTHROPIC_MAX_TOKENS,
-                    messages=[{"role": "user", "content": prompt}],
+                lambda: self._client.chat.completions.create(
+                    model=settings.KIMI_MODEL,
+                    max_tokens=settings.KIMI_MAX_TOKENS,
+                    messages=messages,
                 ),
             )
-            return response.content[0].text
+            return response.choices[0].message.content
         except Exception as e:
-            logger.exception("Anthropic API 调用失败: %s", e)
+            logger.exception("Kimi API 调用失败: %s", e)
             raise
 
 
