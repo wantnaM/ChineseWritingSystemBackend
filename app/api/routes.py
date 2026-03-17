@@ -414,7 +414,6 @@ async def submit_response(body: StudentResponseCreate, db: DB):
       3. 若全部完成，将 student_progress.is_completed 置 True
       4. 在响应中返回 theme_completed 字段，前端据此展示完成动画
 
-    前端**不再需要**调用 PATCH /student/progress。
     """
     # ── 验证 block 存在 ──
     block = await db.get(Block, body.block_id)
@@ -531,33 +530,9 @@ async def evaluate_writing(body: EvaluatorPayload, db: DB):
         raise HTTPException(status_code=404, detail="Block 不存在")
 
     from app.agents.evaluator_agent import agent
-    feedback = await agent.evaluate(body)
+    result = await agent.evaluate(body)
 
-    # ✅ 按 task_id 写入对应子任务的反馈
-    if body.task_id:
-        latest_resp = (
-            await db.execute(
-                select(StudentResponse)
-                .where(
-                    StudentResponse.student_id == body.student_id,
-                    StudentResponse.block_id == body.block_id,
-                )
-                .order_by(StudentResponse.submitted_at.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-
-        if latest_resp:
-            # 读取现有 ai_feedback，保留其他 task 的反馈，只更新当前 task
-            existing: dict = latest_resp.ai_feedback or {}
-            tasks_fb: dict = existing.get("tasks", {})
-            tasks_fb[body.task_id] = {"score": None, "feedback": feedback}
-
-            # JSONB 字段需要赋新对象才能触发 SQLAlchemy 脏检测
-            latest_resp.ai_feedback = {**existing, "tasks": tasks_fb}
-            await db.commit()
-
-    return EvaluatorResponse(feedback=feedback)
+    return EvaluatorResponse(**result)
 
 
 # ===========================================================================

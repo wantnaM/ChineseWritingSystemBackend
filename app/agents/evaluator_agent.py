@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any
+import json
+import re
 
 from openai import OpenAI  # pip install openai
 
@@ -126,16 +128,27 @@ class EvaluatorAgent:
         user_parts += [
             f"【学生作品】\n{payload.student_text}",
             "",
-            "请给出评测反馈（200字以内，语气亲切，具体可操作）：",
+            "请给出评测反馈（200字以内，语气亲切，具体可操作）以及对学生的分数（0-100的整数）",
         ]
+
+        system_prompt = """
+        你是一位经验丰富的语文教师，专注于初中写作教学，你负责回答学生的填写的内容。请参考文档内容回复用户的问题，你的回答是分数、评测反馈  
+        请使用如下 JSON 格式输出你的回复：
+        {
+            "score": "分数",
+            "feedback": "评测反馈"
+        }
+        注意，请将分数放置在 `score` 字段中，将评测反馈放置在 `feedback` 字段中。
+        """
 
         return [
             {"role": "system", "content": system_content},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": "\n".join(user_parts)},
         ]
 
-    async def evaluate(self, payload: EvaluatorPayload) -> str:
-        """调用 Kimi API，返回评测反馈文本。"""
+    async def evaluate(self, payload: EvaluatorPayload) -> dict:
+        """调用 Kimi API，返回 { score, feedback }。"""
         messages = self._build_messages(payload)
         try:
             loop = asyncio.get_event_loop()
@@ -143,14 +156,18 @@ class EvaluatorAgent:
                 None,
                 lambda: self._client.chat.completions.create(
                     model=settings.KIMI_MODEL,
-                    max_tokens=settings.KIMI_MAX_TOKENS,
+                    max_tokens=12800,  # settings.KIMI_MAX_TOKENS,
                     messages=messages,
-                    extra_body={
-                        "thinking": {"type": "disabled"}
-                    },
+                    extra_body={"thinking": {"type": "disabled"}},
+                    response_format={"type": "json_object"},
                 ),
             )
-            return response.choices[0].message.content
+            raw = json.loads(response.choices[0].message.content)
+            print(raw, raw.get("score"), raw.get("feedback", 0))
+            return {
+                "score": int(raw.get("score", 0)),
+                "feedback": raw.get("feedback"),
+            }
         except Exception as e:
             logger.exception("Kimi API 调用失败: %s", e)
             raise

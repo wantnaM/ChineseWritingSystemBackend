@@ -182,6 +182,10 @@ class StudentResponseCreate(BaseModel):
         ...,
         description="作答内容，如 {text: '...', images: ['url1', ...]}"
     )
+    ai_feedback: dict[str, Any] = Field(
+        ...,
+        description="ai反馈，如 {score: '...', feedback: '...'}"
+    )
 
 
 class StudentResponseRead(BaseModel):
@@ -216,7 +220,7 @@ class EvaluatorPayload(BaseModel):
     student_id: str
     block_id: int
     theme_id: int
-    task_id: Optional[str] = Field(     # ← 新增
+    task_id: str = Field(     # ← 新增
         default=None,
         description="对应的 task.id，用于按子任务存储 AI 反馈"
     )
@@ -234,6 +238,7 @@ class EvaluatorPayload(BaseModel):
 class EvaluatorResponse(BaseModel):
     """POST /api/v1/student/evaluate 响应体。"""
     feedback: str = Field(..., description="AI 评测反馈文本")
+    score: int = Field(default=0, description="AI 评分 0-100")
 
 
 # ===========================================================================
