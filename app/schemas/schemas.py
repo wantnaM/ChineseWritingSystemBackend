@@ -137,7 +137,18 @@ class UnitRead(UnitBase):
     updated_at: datetime
 
     themes_count: int = 0
-    themes: list["ThemeRead"] = []
+    themes: list[ThemeRead] = []
+
+
+class ThemeProgressSummary(BaseModel):
+    """单个主题的学生完成状态（用于首页进度渲染）。"""
+    theme_id: int
+    is_completed: bool
+
+
+class UnitWithProgressRead(UnitRead):
+    """学生端单元列表项，附带该学生各主题的完成状态。"""
+    theme_progress: list[ThemeProgressSummary] = []
 
 
 class UnitDetail(UnitRead):

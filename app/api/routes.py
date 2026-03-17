@@ -35,7 +35,7 @@ from app.schemas.schemas import (
     StudentResponseCreate, StudentResponseRead,
     ThemeCreate, ThemeDetail, ThemeRead, ThemeUpdate,
     UnitCreate, UnitDetail, UnitRead, UnitUpdate,
-    BadgeRead,
+    BadgeRead, UnitWithProgressRead, ThemeProgressSummary
 )
 
 # ---------------------------------------------------------------------------
@@ -534,6 +534,53 @@ async def evaluate_writing(body: EvaluatorPayload, db: DB):
 
     return EvaluatorResponse(**result)
 
+
+@student_router.get(
+    "/units/{student_id}",
+    response_model=PaginatedResponse[UnitWithProgressRead],
+    summary="学生端获取单元列表（含学习进度）",
+)
+async def list_units_for_student(
+    student_id: str,
+    db: DB,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    # 1. 查单元列表（与原 list_units 逻辑一致）
+    q = select(Unit).where(Unit.is_published ==
+                           True).order_by(Unit.sort_order, Unit.id)
+    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+    q = q.offset(
+        (page - 1) * page_size).limit(page_size).options(selectinload(Unit.themes))
+    units = (await db.execute(q)).scalars().all()
+
+    # 2. 查该学生所有已完成的主题 id
+    all_theme_ids = [t.id for u in units for t in u.themes]
+    completed_rows = (await db.execute(
+        select(StudentProgress.theme_id).where(
+            StudentProgress.student_id == student_id,
+            StudentProgress.theme_id.in_(all_theme_ids),
+            StudentProgress.is_completed == True,
+        )
+    )).scalars().all()
+    completed_set = set(completed_rows)
+
+    # 3. 组装响应
+    result = []
+    for u in units:
+        ur = UnitWithProgressRead.model_validate(u)
+        ur.themes_count = len(u.themes)
+        ur.theme_progress = [
+            ThemeProgressSummary(
+                theme_id=t.id, is_completed=t.id in completed_set)
+            for t in u.themes
+        ]
+        result.append(ur)
+
+    return PaginatedResponse(items=result, pagination=Pagination(
+        page=page, page_size=page_size, total=total,
+        total_pages=(total + page_size - 1) // page_size,
+    ))
 
 # ===========================================================================
 # 组装 main router
