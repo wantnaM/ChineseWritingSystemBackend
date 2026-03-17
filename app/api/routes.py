@@ -582,6 +582,57 @@ async def list_units_for_student(
         total_pages=(total + page_size - 1) // page_size,
     ))
 
+
+@student_router.get(
+    "/units/{student_id}/detail/{unit_id}",
+    response_model=UnitWithProgressRead,
+    summary="学生端获取单个单元详情（含学习进度）",
+)
+async def get_unit_detail_for_student(
+    student_id: str,
+    unit_id: int,
+    db: DB,
+):
+    """
+    学生端：获取单个单元的详情，包含该学生各主题的完成状态。
+    用于单元详情页面。
+    """
+    # 1. 查单元详情
+    unit = (
+        await db.execute(
+            select(Unit)
+            .where(Unit.id == unit_id, Unit.is_published == True)
+            .options(selectinload(Unit.themes))
+        )
+    ).scalar_one_or_none()
+
+    if not unit:
+        raise HTTPException(status_code=404, detail="单元不存在或未发布")
+
+    # 2. 查该学生该单元下所有主题的完成状态
+    theme_ids = [t.id for t in unit.themes]
+    completed_rows = (
+        await db.execute(
+            select(StudentProgress.theme_id).where(
+                StudentProgress.student_id == student_id,
+                StudentProgress.theme_id.in_(theme_ids),
+                StudentProgress.is_completed == True,
+            )
+        )
+    ).scalars().all()
+    completed_set = set(completed_rows)
+
+    # 3. 组装响应
+    result = UnitWithProgressRead.model_validate(unit)
+    result.themes_count = len(unit.themes)
+    result.theme_progress = [
+        ThemeProgressSummary(
+            theme_id=t.id, is_completed=t.id in completed_set)
+        for t in unit.themes
+    ]
+
+    return result
+
 # ===========================================================================
 # 组装 main router
 # ===========================================================================
