@@ -216,6 +216,10 @@ class EvaluatorPayload(BaseModel):
     student_id: str
     block_id: int
     theme_id: int
+    task_id: Optional[str] = Field(     # ← 新增
+        default=None,
+        description="对应的 task.id，用于按子任务存储 AI 反馈"
+    )
     component_type: str = Field(
         default="TaskDriven",
         description="对应前端组件类型，决定评测策略"

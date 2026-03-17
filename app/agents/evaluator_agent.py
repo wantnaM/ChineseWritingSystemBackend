@@ -137,7 +137,6 @@ class EvaluatorAgent:
     async def evaluate(self, payload: EvaluatorPayload) -> str:
         """调用 Kimi API，返回评测反馈文本。"""
         messages = self._build_messages(payload)
-        print(settings)
         try:
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
@@ -146,6 +145,9 @@ class EvaluatorAgent:
                     model=settings.KIMI_MODEL,
                     max_tokens=settings.KIMI_MAX_TOKENS,
                     messages=messages,
+                    extra_body={
+                        "thinking": {"type": "disabled"}
+                    },
                 ),
             )
             return response.choices[0].message.content

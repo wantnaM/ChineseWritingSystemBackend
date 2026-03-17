@@ -532,6 +532,31 @@ async def evaluate_writing(body: EvaluatorPayload, db: DB):
 
     from app.agents.evaluator_agent import agent
     feedback = await agent.evaluate(body)
+
+    # ✅ 按 task_id 写入对应子任务的反馈
+    if body.task_id:
+        latest_resp = (
+            await db.execute(
+                select(StudentResponse)
+                .where(
+                    StudentResponse.student_id == body.student_id,
+                    StudentResponse.block_id == body.block_id,
+                )
+                .order_by(StudentResponse.submitted_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        if latest_resp:
+            # 读取现有 ai_feedback，保留其他 task 的反馈，只更新当前 task
+            existing: dict = latest_resp.ai_feedback or {}
+            tasks_fb: dict = existing.get("tasks", {})
+            tasks_fb[body.task_id] = {"score": None, "feedback": feedback}
+
+            # JSONB 字段需要赋新对象才能触发 SQLAlchemy 脏检测
+            latest_resp.ai_feedback = {**existing, "tasks": tasks_fb}
+            await db.commit()
+
     return EvaluatorResponse(feedback=feedback)
 
 
