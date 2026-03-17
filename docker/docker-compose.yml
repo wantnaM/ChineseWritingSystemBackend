@@ -1,0 +1,105 @@
+# =============================================================================
+# 语文一体化写作系统 - Docker Compose 配置
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: writing_system_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-writing_system}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: writing_system_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI 后端服务
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: writing_system_api
+    restart: unless-stopped
+    environment:
+      # 数据库配置
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-writing_system}
+      # Redis 配置
+      REDIS_URL: redis://redis:6379/0
+      # AI API 配置
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      KIMI_BASE_URL: ${KIMI_BASE_URL:-https://api.moonshot.cn/v1}
+      KIMI_MODEL: ${KIMI_MODEL:-kimi-2.5}
+      # JWT 配置
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-please-change-in-production}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_SECONDS: ${JWT_EXPIRE_SECONDS:-86400}
+      # CORS 配置
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:5173"]}
+      # 应用配置
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PORT: 8000
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # 注意：生产环境不建议挂载 .env，应在 environment 中配置所有变量
+    # volumes:
+    #   - ../.env:/app/.env:ro
+
+  # 数据库迁移服务（可选，首次启动时运行）
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: writing_system_migrate
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-writing_system}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 5 &&
+        alembic upgrade head &&
+        echo 'Migration completed!'
+      "
+    profiles:
+      - migrate
+
+volumes:
+  postgres_data:
+  redis_data:
