@@ -249,7 +249,7 @@ class EvaluatorPayload(BaseModel):
 class EvaluatorResponse(BaseModel):
     """POST /api/v1/student/evaluate 响应体。"""
     feedback: str = Field(..., description="AI 评测反馈文本")
-    score: int = Field(default=0, description="AI 评分 0-100")
+    score: Optional[int] = None
 
 
 # ===========================================================================

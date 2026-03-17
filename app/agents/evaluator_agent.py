@@ -128,22 +128,11 @@ class EvaluatorAgent:
         user_parts += [
             f"【学生作品】\n{payload.student_text}",
             "",
-            "请给出评测反馈（200字以内，语气亲切，具体可操作）以及对学生的分数（0-100的整数）",
+            '请给出评测反馈（200字以内，语气亲切，具体可操作）：',
         ]
-
-        system_prompt = """
-        你是一位经验丰富的语文教师，专注于初中写作教学，你负责回答学生的填写的内容。请参考文档内容回复用户的问题，你的回答是分数、评测反馈  
-        请使用如下 JSON 格式输出你的回复：
-        {
-            "score": "分数",
-            "feedback": "评测反馈"
-        }
-        注意，请将分数放置在 `score` 字段中，将评测反馈放置在 `feedback` 字段中。
-        """
 
         return [
             {"role": "system", "content": system_content},
-            {"role": "system", "content": system_prompt},
             {"role": "user", "content": "\n".join(user_parts)},
         ]
 
@@ -156,17 +145,15 @@ class EvaluatorAgent:
                 None,
                 lambda: self._client.chat.completions.create(
                     model=settings.KIMI_MODEL,
-                    max_tokens=12800,  # settings.KIMI_MAX_TOKENS,
+                    max_tokens=settings.KIMI_MAX_TOKENS,
                     messages=messages,
                     extra_body={"thinking": {"type": "disabled"}},
-                    response_format={"type": "json_object"},
                 ),
             )
-            raw = json.loads(response.choices[0].message.content)
-            print(raw, raw.get("score"), raw.get("feedback", 0))
+            raw = response.choices[0].message.content
             return {
-                "score": int(raw.get("score", 0)),
-                "feedback": raw.get("feedback"),
+                "score": None,
+                "feedback": raw,
             }
         except Exception as e:
             logger.exception("Kimi API 调用失败: %s", e)
