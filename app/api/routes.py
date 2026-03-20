@@ -401,15 +401,16 @@ class SubmitResponseResult(StudentResponseRead):
 @student_router.post(
     "/responses",
     response_model=SubmitResponseResult,
-    status_code=status.HTTP_201_CREATED,
     summary="学生提交 Block 作答（自动判定主题完成）",
 )
 async def submit_response(body: StudentResponseCreate, db: DB):
     """
     学生提交某 Block 的作答。
 
+    同一 student_id + block_id 重复提交时覆盖原记录。
+
     提交后后端自动执行：
-      1. 存储作答记录（student_responses）
+      1. 存储 / 覆盖作答记录（student_responses）
       2. 检查该主题下所有 task_driven Block 是否均已提交
       3. 若全部完成，将 student_progress.is_completed 置 True
       4. 在响应中返回 theme_completed 字段，前端据此展示完成动画
@@ -420,11 +421,28 @@ async def submit_response(body: StudentResponseCreate, db: DB):
     if not block:
         raise HTTPException(status_code=404, detail="Block 不存在")
 
-    # ── 存储作答 ──
-    response = StudentResponse(**body.model_dump())
-    db.add(response)
-    await db.commit()
-    await db.refresh(response)
+    # ── 查询已有记录，实现 upsert ──
+    existing = (
+        await db.execute(
+            select(StudentResponse).where(
+                StudentResponse.student_id == body.student_id,
+                StudentResponse.block_id == body.block_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        existing.response_data = body.response_data
+        existing.ai_feedback = body.ai_feedback
+        existing.submitted_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(existing)
+        response = existing
+    else:
+        response = StudentResponse(**body.model_dump())
+        db.add(response)
+        await db.commit()
+        await db.refresh(response)
 
     # ── 自动判定主题完成状态（通过 block 找 theme_id）──
     progress = await _check_and_complete_theme(
