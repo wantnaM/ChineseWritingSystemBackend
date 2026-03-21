@@ -533,6 +533,39 @@ async def get_student_badges(student_id: str, db: DB):
 # POST /student/evaluate
 # ---------------------------------------------------------------------------
 
+
+async def _build_eval_context(
+    block: Block, body: EvaluatorPayload, db: AsyncSession
+) -> dict:
+    """从数据库查询 Unit/Theme 信息，合并前端传来的上下文，构建富化评测上下文。"""
+    # 查询 Theme + Unit
+    theme = await db.get(Theme, block.theme_id, options=[selectinload(Theme.unit)])
+    unit = theme.unit if theme else None
+
+    # 从 config_json 中提取 task 信息
+    config = block.config_json or {}
+    task_config = None
+    if body.task_id and "tasks" in config:
+        task_config = next(
+            (t for t in config["tasks"] if t.get("id") == body.task_id), None
+        )
+
+    # 构建上下文 dict
+    ctx = {
+        "unit_title": unit.title if unit else "",
+        "theme_title": theme.title if theme else "",
+        "theme_type": theme.theme_type if theme else "",
+        "theme_description": theme.description or "" if theme else "",
+        "block_title": block.title or config.get("title", ""),
+        "task_title": task_config["title"] if task_config else "",
+        "task_description": task_config.get("description", []) if task_config else [],
+        "word_limit": task_config.get("wordLimit", "") if task_config else "",
+    }
+    # 合并前端传来的 context（instruction, evaluator_focus, reference_text 等）
+    ctx.update(body.context)
+    return ctx
+
+
 @student_router.post(
     "/evaluate",
     response_model=EvaluatorResponse,
@@ -540,15 +573,16 @@ async def get_student_badges(student_id: str, db: DB):
 )
 async def evaluate_writing(body: EvaluatorPayload, db: DB):
     """
-    触发 AI 写作评测，同步返回反馈文本。
-    调用 EvaluatorAgent 构建 Prompt 并请求 Anthropic API。
+    触发 AI 写作评测，返回结构化评测结果（总评、维度反馈、建议、评分）。
     """
     block = await db.get(Block, body.block_id)
     if not block:
         raise HTTPException(status_code=404, detail="Block 不存在")
 
+    eval_context = await _build_eval_context(block, body, db)
+
     from app.agents.evaluator_agent import agent
-    result = await agent.evaluate(body)
+    result = await agent.evaluate(body, eval_context)
 
     return EvaluatorResponse(**result)
 
