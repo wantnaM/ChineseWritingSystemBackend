@@ -369,13 +369,17 @@ class StudentStats(Base):
     """
     学生维度的统计汇总（由后台任务定期更新，或在提交时触发更新）。
     student_id 与 users.username 对齐（均使用学号字符串）。
+    一个学生在不同 unit 下各有一行统计数据。
     """
     __tablename__ = "student_stats"
+    __table_args__ = (
+        UniqueConstraint("student_id", "unit_id", name="uq_student_unit_stats"),
+    )
 
     id: Mapped[int] = mapped_column(
         BigInteger, primary_key=True, autoincrement=True)
     student_id: Mapped[str] = mapped_column(
-        String(100), nullable=False, unique=True, index=True,
+        String(100), nullable=False, index=True,
         comment="与 StudentProgress.student_id 对齐"
     )
     unit_id: Mapped[Optional[int]] = mapped_column(

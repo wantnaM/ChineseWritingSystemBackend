@@ -418,28 +418,30 @@ class StudentListItem(BaseModel):
 # Analytics Schemas（学情分析）
 # ===========================================================================
 
-class ClassOverviewStats(BaseModel):
-    """全班概况统计卡片（TeacherAnalytics 页面顶部 4 张卡片）。"""
+class TaskCompletionItem(BaseModel):
+    """单个任务的全班提交情况。"""
+    block_id: int
+    task_title: str
+    theme_title: str
+    theme_type: str
+    submitted_count: int
     total_students: int
-    completed_count: int
-    learning_count: int
-    behind_count: int
 
 
-class ScoreDistribution(BaseModel):
-    """分数段分布（用于柱状图）。"""
-    range: str
-    count: int
-    percentage: float
+class DimensionSummaryItem(BaseModel):
+    """某个评测维度的全班汇总。"""
+    dimension: str
+    avg_score: float
+    sample_count: int
 
 
 class StudentAnalyticsRow(BaseModel):
-    """学情分析列表中每行学生的数据（TeacherAnalytics 页面表格）。"""
+    """学情分析列表中每行学生的数据。"""
     student_id: str
     display_name: str
     overall_progress: int
     avg_ai_score: Optional[float] = None
-    status: Literal["completed", "learning", "behind"]
+    pending_tasks: int = 0
     last_active_at: Optional[datetime] = None
 
 
@@ -447,8 +449,9 @@ class ClassAnalyticsResponse(BaseModel):
     """GET /api/v1/teacher/analytics?unit_id= 完整学情分析响应体。"""
     unit_id: int
     unit_title: str
-    overview: ClassOverviewStats
-    score_distribution: list[ScoreDistribution]
+    total_students: int
+    task_completion: list[TaskCompletionItem]
+    dimension_summary: list[DimensionSummaryItem]
     students: list[StudentAnalyticsRow]
 
 
@@ -473,6 +476,8 @@ class SubmissionRecord(BaseModel):
     student_text: str
     ai_score: Optional[int] = None
     ai_feedback: Optional[str] = None
+    dimension_feedback: list[dict] = []
+    suggestions: list[str] = []
 
 
 class StudentDetailResponse(BaseModel):

@@ -452,6 +452,12 @@ async def submit_response(body: StudentResponseCreate, db: DB):
         db=db,
     )
 
+    # ── 自动刷新 student_stats（通过 block → theme → unit_id）──
+    theme = await db.get(Theme, block.theme_id)
+    if theme:
+        from app.services.stats_service import refresh_student_stats
+        await refresh_student_stats(db, body.student_id, theme.unit_id)
+
     return SubmitResponseResult(
         id=response.id,
         student_id=response.student_id,

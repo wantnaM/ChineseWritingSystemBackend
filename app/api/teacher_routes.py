@@ -29,11 +29,13 @@ from app.models.models import (
     User, StudentStats, StudentProgress, StudentResponse,
     Block, Theme, Unit,
 )
+from collections import defaultdict
+
 from app.schemas.schemas import (
     MessageResponse,
     PaginatedResponse, Pagination,
     StudentCreate, StudentUpdate, StudentListItem,
-    ClassAnalyticsResponse, ClassOverviewStats, ScoreDistribution,
+    ClassAnalyticsResponse, TaskCompletionItem, DimensionSummaryItem,
     StudentAnalyticsRow,
     StudentDetailResponse, StudentDetailProfile, SubmissionRecord,
     ChangePasswordRequest,
@@ -69,22 +71,99 @@ async def get_class_analytics(
     返回指定单元下全班学生的学情汇总数据，供 **TeacherAnalytics** 页面使用。
 
     响应包含：
-    - `overview` — 全班总人数、已完成、学习中、进度落后四项统计
-    - `score_distribution` — AI 得分分段分布（90-100 / 80-89 / ...）
-    - `students` — 每位学生的进度、AI 均分、状态、最后活跃时间
+    - `task_completion` — 该 unit 下每个 task_driven block 的全班提交情况
+    - `dimension_summary` — 从 ai_feedback JSONB 中聚合全班维度均分
+    - `students` — 每位学生的进度、AI 均分、未完成任务数
     """
-    # 1. 获取单元信息
+    # 1. 验证 unit 存在
     unit = (await db.execute(select(Unit).where(Unit.id == unit_id))).scalar_one_or_none()
     if not unit:
         raise HTTPException(status_code=404, detail="单元不存在")
 
-    # 2. 获取所有学生账号（is_active=True）
+    # 2. 获取全班活跃学生数
     all_students = (
         await db.execute(select(User).where(User.role == "student", User.is_active == True))
     ).scalars().all()
-    total = len(all_students)
+    total_students = len(all_students)
 
-    # 3. 从 student_stats 获取统计数据（按 unit_id 过滤）
+    # 3. 查询该 unit 下所有 theme 及其 task_driven blocks
+    themes = (
+        await db.execute(
+            select(Theme)
+            .where(Theme.unit_id == unit_id)
+            .options(selectinload(Theme.blocks))
+        )
+    ).scalars().all()
+
+    task_blocks: list[tuple[Block, Theme]] = []
+    for theme in themes:
+        for block in theme.blocks:
+            if block.block_type == "task_driven":
+                task_blocks.append((block, theme))
+
+    task_block_ids = [b.id for b, _ in task_blocks]
+
+    # 4. 统计每个 task_driven block 的提交人数 → task_completion
+    submitted_counts: dict[int, int] = {}
+    if task_block_ids:
+        count_rows = (
+            await db.execute(
+                select(
+                    StudentResponse.block_id,
+                    func.count(func.distinct(StudentResponse.student_id)),
+                )
+                .where(StudentResponse.block_id.in_(task_block_ids))
+                .group_by(StudentResponse.block_id)
+            )
+        ).all()
+        submitted_counts = {row[0]: row[1] for row in count_rows}
+
+    task_completion = [
+        TaskCompletionItem(
+            block_id=block.id,
+            task_title=block.title or "—",
+            theme_title=theme.title,
+            theme_type=theme.theme_type,
+            submitted_count=submitted_counts.get(block.id, 0),
+            total_students=total_students,
+        )
+        for block, theme in task_blocks
+    ]
+
+    # 5. 聚合 dimension_summary：从该 unit 下所有 response 的 ai_feedback 提取
+    all_responses = (
+        await db.execute(
+            select(StudentResponse)
+            .where(StudentResponse.block_id.in_(task_block_ids))
+        )
+    ).scalars().all() if task_block_ids else []
+
+    dimension_scores: dict[str, list[float]] = defaultdict(list)
+    for response in all_responses:
+        fb = response.ai_feedback
+        if not fb or not isinstance(fb, dict):
+            continue
+        _extract_dimension_scores(fb, dimension_scores)
+
+    dimension_summary = [
+        DimensionSummaryItem(
+            dimension=dim,
+            avg_score=round(sum(scores) / len(scores), 1),
+            sample_count=len(scores),
+        )
+        for dim, scores in sorted(
+            dimension_scores.items(),
+            key=lambda x: sum(x[1]) / len(x[1]),
+        )
+    ]
+
+    # 6. 构造 students 列表
+    # 查每个学生已提交的 task_driven block_id 集合
+    student_submitted: dict[str, set[int]] = defaultdict(set)
+    for response in all_responses:
+        student_submitted[response.student_id].add(response.block_id)
+
+    # 从 student_stats 获取均分和进度
     stats_rows = (
         await db.execute(
             select(StudentStats).where(StudentStats.unit_id == unit_id)
@@ -92,67 +171,47 @@ async def get_class_analytics(
     ).scalars().all()
     stats_map: dict[str, StudentStats] = {s.student_id: s for s in stats_rows}
 
-    # 4. 构造学生行列表
+    total_task_count = len(task_blocks)
     student_rows: list[StudentAnalyticsRow] = []
-    completed = learning = behind = 0
-
     for student in all_students:
         stat = stats_map.get(student.username)
-        row_status: str = stat.status if stat else "learning"
-        if row_status == "completed":
-            completed += 1
-        elif row_status == "behind":
-            behind += 1
-        else:
-            learning += 1
-
+        completed_count = len(student_submitted.get(student.username, set()))
+        pending = max(0, total_task_count - completed_count)
         student_rows.append(
             StudentAnalyticsRow(
                 student_id=student.username,
                 display_name=student.display_name,
                 overall_progress=stat.overall_progress if stat else 0,
                 avg_ai_score=stat.avg_ai_score if stat else None,
-                status=row_status,  # type: ignore[arg-type]
+                pending_tasks=pending,
                 last_active_at=stat.last_active_at if stat else None,
-            )
-        )
-
-    overview = ClassOverviewStats(
-        total_students=total,
-        completed_count=completed,
-        learning_count=learning,
-        behind_count=behind,
-    )
-
-    # 5. 分数段分布（从 StudentStats.avg_ai_score 统计）
-    score_ranges = [
-        ("90-100", 90, 101),
-        ("80-89",  80, 90),
-        ("70-79",  70, 80),
-        ("60-69",  60, 70),
-        ("60以下",  0, 60),
-    ]
-    all_scores = [
-        s.avg_ai_score for s in stats_rows if s.avg_ai_score is not None]
-    distribution: list[ScoreDistribution] = []
-    for label, low, high in score_ranges:
-        cnt = sum(1 for sc in all_scores if low <= sc < high)
-        distribution.append(
-            ScoreDistribution(
-                range=label,
-                count=cnt,
-                percentage=round(cnt / len(all_scores) * 100,
-                                 1) if all_scores else 0.0,
             )
         )
 
     return ClassAnalyticsResponse(
         unit_id=unit_id,
         unit_title=unit.title,
-        overview=overview,
-        score_distribution=distribution,
+        total_students=total_students,
+        task_completion=task_completion,
+        dimension_summary=dimension_summary,
         students=student_rows,
     )
+
+
+def _extract_dimension_scores(
+    fb: dict, dimension_scores: dict[str, list[float]]
+) -> None:
+    """从 ai_feedback 中提取维度分数，兼容顶层和按 task_id 嵌套两种结构。"""
+    if "dimension_feedback" in fb:
+        for d in fb["dimension_feedback"]:
+            if isinstance(d, dict) and "dimension" in d and "score" in d:
+                dimension_scores[d["dimension"]].append(d["score"])
+    else:
+        for key, val in fb.items():
+            if isinstance(val, dict) and "dimension_feedback" in val:
+                for d in val["dimension_feedback"]:
+                    if isinstance(d, dict) and "dimension" in d and "score" in d:
+                        dimension_scores[d["dimension"]].append(d["score"])
 
 
 # ===========================================================================
@@ -339,26 +398,22 @@ async def get_student_detail(
     if not user:
         raise HTTPException(status_code=404, detail="学生不存在")
 
-    # 学生统计数据
-    stat = (
-        await db.execute(
-            select(StudentStats).where(
-                StudentStats.student_id == student_id,
-                StudentStats.unit_id == unit_id if unit_id else True,
-            )
-        )
-    ).scalar_one_or_none()
+    # 学生统计数据 — 修复 unit_id 过滤条件
+    stat_q = select(StudentStats).where(StudentStats.student_id == student_id)
+    if unit_id:
+        stat_q = stat_q.where(StudentStats.unit_id == unit_id)
+    stat = (await db.execute(stat_q)).scalar_one_or_none()
 
     profile = StudentDetailProfile(
         student_id=student_id,
         display_name=user.display_name,
         class_name=user.class_name,
-        total_time_minutes=0,  # 可由前端埋点记录后存入 student_stats
+        total_time_minutes=0,
         completed_tasks=stat.total_submit_count if stat else 0,
         avg_ai_score=stat.avg_ai_score if stat else None,
     )
 
-    # 最近提交记录（带 Block / Theme 信息）
+    # 最近提交记录（带 Block / Theme 信息），按 unit_id 过滤
     resp_q = (
         select(StudentResponse)
         .where(StudentResponse.student_id == student_id)
@@ -370,14 +425,36 @@ async def get_student_detail(
     )
     responses = (await db.execute(resp_q)).scalars().all()
 
+    # 如果指定了 unit_id，在内存中过滤（theme → unit_id）
+    if unit_id:
+        responses = [
+            r for r in responses
+            if r.block and r.block.theme and r.block.theme.unit_id == unit_id
+        ]
+
     submissions: list[SubmissionRecord] = []
     for r in responses:
         block: Block = r.block
         theme: Theme = block.theme if block else None
         feedback_text = None
+        dim_feedback: list[dict] = []
+        suggestions: list[str] = []
+
         if r.ai_feedback and isinstance(r.ai_feedback, dict):
-            feedback_text = r.ai_feedback.get(
-                "feedback") or r.ai_feedback.get("text")
+            fb = r.ai_feedback
+            feedback_text = fb.get("overall_comment") or fb.get("feedback") or fb.get("text")
+            # 提取 dimension_feedback 和 suggestions，兼容两种结构
+            if "dimension_feedback" in fb:
+                dim_feedback = fb["dimension_feedback"] if isinstance(fb["dimension_feedback"], list) else []
+                suggestions = fb.get("suggestions", []) if isinstance(fb.get("suggestions"), list) else []
+            else:
+                # 按 task_id 嵌套结构：合并所有子任务的反馈
+                for key, val in fb.items():
+                    if isinstance(val, dict):
+                        if "dimension_feedback" in val and isinstance(val["dimension_feedback"], list):
+                            dim_feedback.extend(val["dimension_feedback"])
+                        if "suggestions" in val and isinstance(val["suggestions"], list):
+                            suggestions.extend(val["suggestions"])
 
         submissions.append(
             SubmissionRecord(
@@ -388,6 +465,8 @@ async def get_student_detail(
                 student_text=r.response_data.get("text", ""),
                 ai_score=r.score,
                 ai_feedback=feedback_text,
+                dimension_feedback=dim_feedback,
+                suggestions=suggestions,
             )
         )
 
