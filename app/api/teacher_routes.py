@@ -416,21 +416,18 @@ async def get_student_detail(
     # 最近提交记录（带 Block / Theme 信息），按 unit_id 过滤
     resp_q = (
         select(StudentResponse)
+        .join(Block, StudentResponse.block_id == Block.id)
+        .join(Theme, Block.theme_id == Theme.id)
         .where(StudentResponse.student_id == student_id)
         .options(
             selectinload(StudentResponse.block).selectinload(Block.theme)
         )
         .order_by(StudentResponse.submitted_at.desc())
-        .limit(20)
     )
-    responses = (await db.execute(resp_q)).scalars().all()
-
-    # 如果指定了 unit_id，在内存中过滤（theme → unit_id）
     if unit_id:
-        responses = [
-            r for r in responses
-            if r.block and r.block.theme and r.block.theme.unit_id == unit_id
-        ]
+        resp_q = resp_q.where(Theme.unit_id == unit_id)
+    resp_q = resp_q.limit(20)
+    responses = (await db.execute(resp_q)).scalars().all()
 
     submissions: list[SubmissionRecord] = []
     for r in responses:

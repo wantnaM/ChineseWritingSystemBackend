@@ -34,10 +34,12 @@ from app.schemas.schemas import (
     PaginatedResponse, Pagination,
     StudentProgressRead,
     StudentResponseCreate, StudentResponseRead,
+    SubmitResponseResult,
     ThemeCreate, ThemeDetail, ThemeRead, ThemeUpdate,
     UnitCreate, UnitDetail, UnitRead, UnitUpdate,
     BadgeRead, UnitWithProgressRead, ThemeProgressSummary
 )
+from app.services.stats_service import refresh_student_stats
 
 # ---------------------------------------------------------------------------
 # Dependency alias
@@ -394,11 +396,6 @@ async def get_progress(student_id: str, theme_id: int, db: DB):
 # POST /student/responses  ← 核心：提交后自动判定主题完成
 # ---------------------------------------------------------------------------
 
-class SubmitResponseResult(StudentResponseRead):
-    """提交作答的响应，附带最新的主题完成状态。"""
-    theme_completed: bool = False
-
-
 @student_router.post(
     "/responses",
     response_model=SubmitResponseResult,
@@ -455,7 +452,6 @@ async def submit_response(body: StudentResponseCreate, db: DB):
     # ── 自动刷新 student_stats（通过 block → theme → unit_id）──
     theme = await db.get(Theme, block.theme_id)
     if theme:
-        from app.services.stats_service import refresh_student_stats
         await refresh_student_stats(db, body.student_id, theme.unit_id)
 
     return SubmitResponseResult(
