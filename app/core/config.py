@@ -81,7 +81,9 @@ class Settings(BaseSettings):
     KIMI_API_KEY: str = ""
     KIMI_BASE_URL: str = "https://api.moonshot.cn/v1"
     KIMI_MODEL: str = "kimi-k2.5"
-    KIMI_MAX_TOKENS: int = 8192
+    KIMI_MAX_TOKENS: int = 32768
+    KIMI_CHAT_MODEL: str = "kimi-k2.5"
+    KIMI_CHAT_MAX_TOKENS: int = 8192
 
 
 # 全局单例 —— 其他模块直接 from app.core.config import settings

@@ -246,10 +246,61 @@ class EvaluatorPayload(BaseModel):
     )
 
 
+class DimensionFeedback(BaseModel):
+    """单个评测维度的反馈。"""
+    dimension: str = Field(..., description="评测维度名称")
+    score: int = Field(..., ge=0, le=100, description="该维度得分 0-100")
+    comment: str = Field(..., description="该维度的具体评语")
+
+
 class EvaluatorResponse(BaseModel):
     """POST /api/v1/student/evaluate 响应体。"""
-    feedback: str = Field(..., description="AI 评测反馈文本")
-    score: Optional[int] = None
+    overall_comment: str = Field(..., description="总体评语")
+    dimension_feedback: list[DimensionFeedback] = Field(
+        default_factory=list, description="按维度的评测反馈"
+    )
+    suggestions: list[str] = Field(
+        default_factory=list, description="改进建议"
+    )
+    score: Optional[int] = Field(None, ge=0, le=100, description="综合得分 0-100")
+    score_rationale: str = Field(default="", description="评分依据")
+    # 向后兼容：feedback = overall_comment
+    feedback: str = Field(default="", description="= overall_comment，向后兼容")
+
+
+# ===========================================================================
+# Chat Schemas（伴学助手对话）
+# ===========================================================================
+
+class ChatMessage(BaseModel):
+    """对话历史中的单条消息。"""
+    role: Literal["user", "ai"]
+    content: str
+
+
+class ChatContext(BaseModel):
+    """可选的任务上下文，帮助 AI 感知学生当前操作的任务。"""
+    component_type: Optional[str] = None
+    task_title: Optional[str] = None
+    task_description: Optional[str] = None
+    evaluator_focus: Optional[list[str]] = None
+    student_text: Optional[str] = None
+    block_id: Optional[str] = None
+    theme_id: Optional[int] = None
+
+
+class ChatRequest(BaseModel):
+    """POST /api/v1/student/chat 请求体。"""
+    student_id: str
+    messages: list[ChatMessage] = Field(..., min_length=1, description="完整对话历史")
+    context: Optional[ChatContext] = None
+    theme_title: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    """POST /api/v1/student/chat 响应体。"""
+    role: Literal["ai"] = "ai"
+    content: str
 
 
 # ===========================================================================
