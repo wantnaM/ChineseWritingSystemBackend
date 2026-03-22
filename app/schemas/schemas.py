@@ -269,6 +269,41 @@ class EvaluatorResponse(BaseModel):
 
 
 # ===========================================================================
+# Chat Schemas（伴学助手对话）
+# ===========================================================================
+
+class ChatMessage(BaseModel):
+    """对话历史中的单条消息。"""
+    role: Literal["user", "ai"]
+    content: str
+
+
+class ChatContext(BaseModel):
+    """可选的任务上下文，帮助 AI 感知学生当前操作的任务。"""
+    component_type: Optional[str] = None
+    task_title: Optional[str] = None
+    task_description: Optional[str] = None
+    evaluator_focus: Optional[list[str]] = None
+    student_text: Optional[str] = None
+    block_id: Optional[str] = None
+    theme_id: Optional[int] = None
+
+
+class ChatRequest(BaseModel):
+    """POST /api/v1/student/chat 请求体。"""
+    student_id: str
+    messages: list[ChatMessage] = Field(..., min_length=1, description="完整对话历史")
+    context: Optional[ChatContext] = None
+    theme_title: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    """POST /api/v1/student/chat 响应体。"""
+    role: Literal["ai"] = "ai"
+    content: str
+
+
+# ===========================================================================
 # Badge Schemas
 # ===========================================================================
 

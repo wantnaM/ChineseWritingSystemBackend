@@ -28,6 +28,7 @@ from app.models.models import (
 )
 from app.schemas.schemas import (
     BlockCreate, BlockRead, BlockUpdate,
+    ChatRequest, ChatResponse,
     EvaluatorPayload, EvaluatorResponse,
     MessageResponse,
     PaginatedResponse, Pagination,
@@ -585,6 +586,22 @@ async def evaluate_writing(body: EvaluatorPayload, db: DB):
     result = await agent.evaluate(body, eval_context)
 
     return EvaluatorResponse(**result)
+
+
+@student_router.post(
+    "/chat",
+    response_model=ChatResponse,
+    summary="学生伴学聊天（苏格拉底式引导）",
+)
+async def student_chat(body: ChatRequest):
+    """
+    伴学小助手对话接口，无状态：前端每次携带完整消息历史，
+    后端拼接系统提示词后调用 Kimi API，返回苏格拉底式引导回复。
+    """
+    from app.agents.chat_agent import agent
+
+    content = await agent.chat(body)
+    return ChatResponse(content=content)
 
 
 @student_router.get(
